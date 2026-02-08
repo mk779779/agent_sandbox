@@ -52,9 +52,9 @@ def exit_loop(tool_context: ToolContext):
 
 
 def _save_report_markdown(markdown: str) -> dict:
-    """Save markdown to agents/outputs/latest_report.md."""
+    """Save markdown to agents/outputs/reports/latest_report.md."""
     agents_dir = Path(__file__).resolve().parents[1]
-    output_dir = agents_dir / "outputs"
+    output_dir = agents_dir / "outputs" / "reports"
     output_dir.mkdir(parents=True, exist_ok=True)
     output_path = output_dir / "latest_report.md"
     output_path.write_text(markdown, encoding="utf-8")
@@ -119,6 +119,8 @@ report_gen_initial_agent = LlmAgent(
     - Include at least one valid segmentation using quarter/region/subclass/sku.
     - Include both global and local min/max statements from tool output.
     - Show an explicit drill path: what insight was found first, what was drilled next, and what other area was investigated afterward.
+    - Prioritize findings by business impact, with at least two quantified comparisons (share %, gap, concentration %, or best-vs-worst deltas).
+    - Include one actionable recommendation tied to the weakest area and one to the strongest area.
     - Do not use unsupported fields unless explicitly available in tool output.
     - No placeholders.
 
@@ -156,6 +158,8 @@ report_gen_critic_agent = LlmAgent(
     6. Contains no placeholders like "TBD", "N/A", "placeholder", or "<...>"
     7. Contains no unsupported claims/fields (e.g., channel or retention when not present in data)
     8. Shows an insight-led drill sequence (driver -> deeper cut -> contrast area)
+    9. Includes at least two quantified impact comparisons (for example share %, gap $, concentration %, or regional spread)
+    10. Includes at least one concrete action recommendation for a weak performer and one for a strong performer
 
     **Task:**
     Check the document against the criteria above.
@@ -198,6 +202,7 @@ report_gen_refiner_agent = LlmAgent(
     Keep all factual values consistent with the data already used in the draft.
     Do NOT invent metrics or dimensions.
     If data for a requested metric/dimension is unavailable, state that explicitly.
+    Ensure insights are prioritized by impact and include concrete recommendations for both upside scaling and downside recovery.
 
     Formatting requirements for the refined report:
     - Use Markdown.

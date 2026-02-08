@@ -5,44 +5,74 @@ Simple OLAP-style sales data store and query helpers.
 from typing import Any
 
 # Flat fact-table shape keeps this simple and easy to filter/aggregate.
-SALES_OLAP_FACTS: list[dict[str, Any]] = [
-    # Q1
-    {"quarter": "Q1", "region": "NA", "subclass": "Electronics", "sku": "ELEC-001", "units": 120, "revenue": 24000},
-    {"quarter": "Q1", "region": "EU", "subclass": "Electronics", "sku": "ELEC-001", "units": 95, "revenue": 19500},
-    {"quarter": "Q1", "region": "NA", "subclass": "Electronics", "sku": "ELEC-002", "units": 80, "revenue": 17600},
-    {"quarter": "Q1", "region": "EU", "subclass": "Electronics", "sku": "ELEC-002", "units": 70, "revenue": 15400},
-    {"quarter": "Q1", "region": "NA", "subclass": "Home", "sku": "HOME-001", "units": 150, "revenue": 22500},
-    {"quarter": "Q1", "region": "EU", "subclass": "Home", "sku": "HOME-001", "units": 140, "revenue": 21000},
-    {"quarter": "Q1", "region": "NA", "subclass": "Home", "sku": "HOME-002", "units": 110, "revenue": 14300},
-    {"quarter": "Q1", "region": "EU", "subclass": "Home", "sku": "HOME-002", "units": 100, "revenue": 13000},
-    # Q2
-    {"quarter": "Q2", "region": "NA", "subclass": "Electronics", "sku": "ELEC-001", "units": 130, "revenue": 26650},
-    {"quarter": "Q2", "region": "EU", "subclass": "Electronics", "sku": "ELEC-001", "units": 100, "revenue": 20500},
-    {"quarter": "Q2", "region": "NA", "subclass": "Electronics", "sku": "ELEC-002", "units": 90, "revenue": 19800},
-    {"quarter": "Q2", "region": "EU", "subclass": "Electronics", "sku": "ELEC-002", "units": 75, "revenue": 16500},
-    {"quarter": "Q2", "region": "NA", "subclass": "Home", "sku": "HOME-001", "units": 165, "revenue": 24750},
-    {"quarter": "Q2", "region": "EU", "subclass": "Home", "sku": "HOME-001", "units": 145, "revenue": 21750},
-    {"quarter": "Q2", "region": "NA", "subclass": "Home", "sku": "HOME-002", "units": 120, "revenue": 15600},
-    {"quarter": "Q2", "region": "EU", "subclass": "Home", "sku": "HOME-002", "units": 105, "revenue": 13650},
-    # Q3
-    {"quarter": "Q3", "region": "NA", "subclass": "Electronics", "sku": "ELEC-001", "units": 145, "revenue": 29725},
-    {"quarter": "Q3", "region": "EU", "subclass": "Electronics", "sku": "ELEC-001", "units": 110, "revenue": 22550},
-    {"quarter": "Q3", "region": "NA", "subclass": "Electronics", "sku": "ELEC-002", "units": 95, "revenue": 20900},
-    {"quarter": "Q3", "region": "EU", "subclass": "Electronics", "sku": "ELEC-002", "units": 82, "revenue": 18040},
-    {"quarter": "Q3", "region": "NA", "subclass": "Home", "sku": "HOME-001", "units": 172, "revenue": 25800},
-    {"quarter": "Q3", "region": "EU", "subclass": "Home", "sku": "HOME-001", "units": 152, "revenue": 22800},
-    {"quarter": "Q3", "region": "NA", "subclass": "Home", "sku": "HOME-002", "units": 128, "revenue": 16640},
-    {"quarter": "Q3", "region": "EU", "subclass": "Home", "sku": "HOME-002", "units": 108, "revenue": 14040},
-    # Q4
-    {"quarter": "Q4", "region": "NA", "subclass": "Electronics", "sku": "ELEC-001", "units": 160, "revenue": 32800},
-    {"quarter": "Q4", "region": "EU", "subclass": "Electronics", "sku": "ELEC-001", "units": 120, "revenue": 24600},
-    {"quarter": "Q4", "region": "NA", "subclass": "Electronics", "sku": "ELEC-002", "units": 102, "revenue": 22440},
-    {"quarter": "Q4", "region": "EU", "subclass": "Electronics", "sku": "ELEC-002", "units": 88, "revenue": 19360},
-    {"quarter": "Q4", "region": "NA", "subclass": "Home", "sku": "HOME-001", "units": 185, "revenue": 27750},
-    {"quarter": "Q4", "region": "EU", "subclass": "Home", "sku": "HOME-001", "units": 160, "revenue": 24000},
-    {"quarter": "Q4", "region": "NA", "subclass": "Home", "sku": "HOME-002", "units": 138, "revenue": 17940},
-    {"quarter": "Q4", "region": "EU", "subclass": "Home", "sku": "HOME-002", "units": 115, "revenue": 14950},
-]
+# Deterministic synthetic generation gives us richer OLAP scale for meaningful insights.
+QUARTERS = ("Q1", "Q2", "Q3", "Q4")
+QUARTER_FACTORS = {"Q1": 0.94, "Q2": 1.00, "Q3": 1.07, "Q4": 1.17}
+REGION_FACTORS = {"NA": 1.18, "EU": 1.0, "APAC": 1.08, "LATAM": 0.82}
+
+SUBCLASS_SKUS: dict[str, list[dict[str, Any]]] = {
+    "Electronics": [
+        {"sku": "ELEC-001", "base_units": 165, "base_price": 235.0},
+        {"sku": "ELEC-002", "base_units": 145, "base_price": 208.0},
+        {"sku": "ELEC-003", "base_units": 112, "base_price": 282.0},
+    ],
+    "Home": [
+        {"sku": "HOME-001", "base_units": 198, "base_price": 152.0},
+        {"sku": "HOME-002", "base_units": 172, "base_price": 134.0},
+        {"sku": "HOME-003", "base_units": 126, "base_price": 176.0},
+    ],
+    "Outdoors": [
+        {"sku": "OUT-001", "base_units": 118, "base_price": 184.0},
+        {"sku": "OUT-002", "base_units": 96, "base_price": 204.0},
+        {"sku": "OUT-003", "base_units": 88, "base_price": 226.0},
+    ],
+    "Beauty": [
+        {"sku": "BEAU-001", "base_units": 186, "base_price": 72.0},
+        {"sku": "BEAU-002", "base_units": 164, "base_price": 86.0},
+        {"sku": "BEAU-003", "base_units": 132, "base_price": 102.0},
+    ],
+}
+
+
+def _build_sales_olap_facts() -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for quarter in QUARTERS:
+        quarter_idx = QUARTERS.index(quarter)
+        quarter_factor = QUARTER_FACTORS[quarter]
+        for region, region_factor in REGION_FACTORS.items():
+            region_idx = list(REGION_FACTORS.keys()).index(region)
+            for subclass, sku_specs in SUBCLASS_SKUS.items():
+                subclass_idx = list(SUBCLASS_SKUS.keys()).index(subclass)
+                for sku_idx, spec in enumerate(sku_specs):
+                    mix_adjust = 1 + ((quarter_idx + region_idx + subclass_idx + sku_idx) % 4 - 1.5) * 0.04
+                    units = int(spec["base_units"] * quarter_factor * region_factor * mix_adjust)
+                    units = max(units, 28)
+                    price_adjust = 1 + (quarter_idx * 0.012) + (region_idx * 0.006) + (sku_idx * 0.01)
+                    price = spec["base_price"] * price_adjust
+
+                    # Inject a few realistic problem/opportunity pockets for analyst detection.
+                    if quarter == "Q3" and region == "LATAM" and spec["sku"] == "OUT-003":
+                        units = int(units * 0.68)
+                    if quarter == "Q4" and region == "APAC" and spec["sku"] == "ELEC-003":
+                        units = int(units * 1.22)
+                        price *= 1.05
+                    if quarter == "Q2" and region == "EU" and spec["sku"] == "HOME-002":
+                        price *= 0.93
+
+                    rows.append(
+                        {
+                            "quarter": quarter,
+                            "region": region,
+                            "subclass": subclass,
+                            "sku": spec["sku"],
+                            "units": units,
+                            "revenue": int(round(units * price)),
+                        }
+                    )
+    return rows
+
+
+SALES_OLAP_FACTS: list[dict[str, Any]] = _build_sales_olap_facts()
 
 VALID_QUARTERS = {"Q1", "Q2", "Q3", "Q4"}
 
@@ -244,7 +274,9 @@ def investigate_sales_drilldown(
     overall_avg_price = round(overall_revenue / max(overall_units, 1), 2)
 
     by_subclass = _aggregate(base_rows, ("subclass",))
+    by_region = _aggregate(base_rows, ("region",))
     subclass_extrema = _top_bottom(by_subclass)
+    region_extrema_all = _top_bottom(by_region)
     top_subclass = subclass_extrema["top"]["key"]["subclass"] if subclass_extrema["top"] else None
     bottom_subclass = subclass_extrema["bottom"]["key"]["subclass"] if subclass_extrema["bottom"] else None
 
@@ -263,6 +295,31 @@ def investigate_sales_drilldown(
 
     top_subclass_revenue = subclass_extrema["top"]["revenue"] if subclass_extrema["top"] else 0
     bottom_subclass_revenue = subclass_extrema["bottom"]["revenue"] if subclass_extrema["bottom"] else 0
+    top_region_revenue = region_extrema_all["top"]["revenue"] if region_extrema_all["top"] else 0
+    bottom_region_revenue = region_extrema_all["bottom"]["revenue"] if region_extrema_all["bottom"] else 0
+
+    # Concentration and gap signals to drive analyst-quality insights.
+    concentration_top2 = 0.0
+    if by_subclass:
+        ordered_subclass = sorted(by_subclass, key=lambda x: x["revenue"], reverse=True)
+        concentration_top2 = _pct(
+            sum(item["revenue"] for item in ordered_subclass[:2]),
+            overall_revenue,
+        )
+    driver_gap = top_subclass_revenue - bottom_subclass_revenue
+    regional_gap = top_region_revenue - bottom_region_revenue
+
+    # Lightweight anomaly candidates by subclass+sku+region revenue.
+    cell_entries = _aggregate(base_rows, ("subclass", "sku", "region"))
+    ordered_cells = sorted(cell_entries, key=lambda x: x["revenue"])
+    anomaly_candidates = []
+    if ordered_cells:
+        median_revenue = ordered_cells[len(ordered_cells) // 2]["revenue"]
+        high_cut = median_revenue * 1.65
+        low_cut = median_revenue * 0.62
+        low_hits = [c for c in ordered_cells if c["revenue"] <= low_cut][:2]
+        high_hits = [c for c in reversed(ordered_cells) if c["revenue"] >= high_cut][:2]
+        anomaly_candidates = low_hits + high_hits
 
     return {
         "scope": {
@@ -274,8 +331,11 @@ def investigate_sales_drilldown(
             "units": overall_units,
             "avg_price": overall_avg_price,
             "subclass_count": len(by_subclass),
+            "region_count": len(by_region),
             "top_subclass": subclass_extrema["top"],
             "bottom_subclass": subclass_extrema["bottom"],
+            "top_region": region_extrema_all["top"],
+            "bottom_region": region_extrema_all["bottom"],
         },
         "insight_1_primary_driver": {
             "statement": (
@@ -303,6 +363,12 @@ def investigate_sales_drilldown(
             "contrast_subclass": bottom_subclass,
             "region_top": contrast_extrema["top"],
             "region_bottom": contrast_extrema["bottom"],
+        },
+        "insight_3_business_signals": {
+            "concentration_top_2_subclass_pct": concentration_top2,
+            "driver_vs_laggard_revenue_gap": driver_gap,
+            "best_vs_worst_region_revenue_gap": regional_gap,
+            "anomaly_candidates": anomaly_candidates,
         },
         "recommended_next_questions": [
             f"Drill from subclass '{top_subclass}' to SKU margin/price mix analysis.",

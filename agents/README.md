@@ -7,17 +7,27 @@ It now includes a parameterized OLAP fetch tool backed by a simple in-repo sales
 - Data file: `report_gen/sales_olap.py`
 - Tool: `fetch_sales_olap(quarter, subclass, sku, region)`
 - Insight-drill tool: `investigate_sales_drilldown(quarter, subclass, region)`
-- Final output file: `outputs/latest_report.md` (overwritten each new run)
+- Final output file: `outputs/reports/latest_report.md` (overwritten each new run)
 - Returns:
   - filtered summary (revenue, units, avg price)
   - global min/max revenue (across subclass+SKU in scope)
   - local min/max revenue (by subclass, SKU, or region depending on drill depth)
   - dimensional breakdowns
   - insight-led drill path (driver -> deeper cut -> contrast area)
+  - business signal pack (top-2 concentration, driver-vs-laggard gap, regional spread, anomaly candidates)
 
-## How the Loop Agent Flow Works
+Current synthetic OLAP scale:
+- 192 fact rows
+- 4 quarters x 4 regions (NA/EU/APAC/LATAM)
+- 4 subclasses x 12 SKUs
 
-The agent uses a **SequentialAgent** pipeline with a **LoopAgent** inside it. The flow has three phases:
+## Process Overview
+
+The agent uses a **SequentialAgent** pipeline with a **LoopAgent** inside it:
+- `report_gen_initial`: builds the first report draft from tool outputs.
+- `report_gen_critic`: checks if the draft meets report quality criteria.
+- `report_gen_refiner`: either improves the report or exits when quality is met.
+- `save_report_after_loop`: writes final markdown output to disk.
 
 ### Phase 1: Initial Draft (runs once)
 
@@ -41,12 +51,14 @@ User prompt ("Q3 revenue report")
 │                                                  │
 │  ┌────────────────────┐                          │
 │  │ report_gen_critic   │  Reads state["current_document"]
-│  │ (LlmAgent)         │  and checks against 5 criteria:
+│  │ (LlmAgent)         │  and checks quality criteria:
 │  │                     │    1. At least 4 sentences
 │  │                     │    2. 3+ OLAP metrics covered
 │  │                     │    3. At least 1 segmentation/slice
-│  │                     │    4. States an insight or trend
-│  │                     │    5. Multiline Markdown formatting
+│  │                     │    4. Insight-led drill path
+│  │                     │    5. Quantified impact comparisons
+│  │                     │    6. Concrete actions (strong + weak performers)
+│  │                     │    7. Multiline Markdown + no placeholders
 │  └────────┬───────────┘
 │           │ saves feedback → state["criticism"]
 │           ▼
@@ -69,7 +81,7 @@ User prompt ("Q3 revenue report")
 
 After loop completion, an ADK `after_agent_callback` saves the final report to:
 
-- `outputs/latest_report.md`
+- `outputs/reports/latest_report.md`
 
 The filename stays the same and is overwritten on each new run.
 
@@ -89,16 +101,16 @@ The loop ends when **either**:
 
 ## Setup
 
-1. Install dependencies with Poetry:
+1. Install dependencies:
 
    ```bash
    poetry install
    ```
 
-2. Set your OpenAI API key (via `.env` file or shell export):
+2. Set your OpenAI API key (shell export or `.env`):
 
    ```bash
-   OPENAI_API_KEY=your-openai-api-key
+   export OPENAI_API_KEY=your-openai-api-key
    ```
 
 3. Optional: remove the `google-cloud-storage < 3.0.0` warning:
@@ -107,13 +119,28 @@ The loop ends when **either**:
    poetry add "google-cloud-storage@^3.0.0"
    ```
 
-## Run with ADK Web
+## How To Run
+
+1. Start ADK Web with auto-reload:
 
 ```bash
 poetry run adk web --reload --reload_agents .
 ```
 
-Open <http://localhost:8000> in your browser and select the **report_gen** agent.
+2. Open `http://localhost:8000`.
+3. Select the `report_gen` agent in the UI.
+4. Enter a prompt (examples below).
+5. Wait for loop completion, then check output file:
+   - `outputs/reports/latest_report.md`
+
+## CLI Command Reference
+
+```bash
+poetry run adk web --reload --reload_agents .
+```
+
+- `--reload`: restarts app on code changes
+- `--reload_agents`: refreshes agent discovery on agent/module changes
 
 **Example prompts:**
 
