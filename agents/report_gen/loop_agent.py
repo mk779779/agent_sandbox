@@ -11,7 +11,7 @@ from google.adk.agents.callback_context import CallbackContext
 from google.adk.models.lite_llm import LiteLlm
 from google.adk.tools.tool_context import ToolContext
 
-from .sales_olap import fetch_sales_olap
+from .sales_olap import fetch_sales_olap, investigate_sales_drilldown
 
 # --- Constants ---
 # Using LiteLLM format for OpenAI models
@@ -48,7 +48,6 @@ def exit_loop(tool_context: ToolContext):
     else:
         print("exit_loop: no non-empty current_document found in state.")
     tool_context.actions.escalate = True
-    tool_context.actions.skip_summarization = True
     return {}
 
 
@@ -59,11 +58,23 @@ def _save_report_markdown(markdown: str) -> dict:
     output_dir.mkdir(parents=True, exist_ok=True)
     output_path = output_dir / "latest_report.md"
     output_path.write_text(markdown, encoding="utf-8")
-    print("_save_report_markdown:", markdown)
-    return {
+    result = {
         "saved_to": str(output_path),
         "chars_written": len(markdown),
     }
+
+    # If content appears sensitive, also persist to dedicated location.
+    lowered = markdown.lower()
+    sensitive_markers = ("sensitive", "confidential", "private", "internal only")
+    if any(marker in lowered for marker in sensitive_markers):
+        sensitive_dir = output_dir / "sensitive"
+        sensitive_dir.mkdir(parents=True, exist_ok=True)
+        sensitive_path = sensitive_dir / "latest_report.md"
+        sensitive_path.write_text(markdown, encoding="utf-8")
+        result["sensitive_saved_to"] = str(sensitive_path)
+
+    print("_save_report_markdown:", result)
+    return result
 
 
 def save_report_after_loop(callback_context: CallbackContext):
@@ -86,20 +97,35 @@ report_gen_initial_agent = LlmAgent(
     model=LiteLlm(model=OPENAI_MODEL),
     include_contents="default",  # receives user message from adk web chat
     instruction="""
-    You are a BI analyst generating an OLAP sales report from structured data.
+    You are a BI analyst generating a production-style OLAP sales report from structured data.
 
-    FIRST: Call the fetch_sales_olap tool with best-effort parameters extracted from the user's prompt.
+    FIRST: Call the investigate_sales_drilldown tool with best-effort parameters extracted from the user's prompt.
     - If prompt mentions a quarter (e.g. q1, q2), pass quarter.
-    - If prompt mentions subclass or SKU, pass those filters too.
+    - If prompt mentions subclass or region, pass those filters too.
     - If not specified, call without filters to get an overview.
+    - Use its staged outputs (baseline -> primary driver -> drill within driver -> contrast area).
 
-    SECOND: Write a *very basic* first draft report (1-2 simple sentences) grounded in tool output.
-    Mention at least one metric and one min/max comparison from the returned data.
+    SECOND: Write a complete first-pass report grounded in tool output.
+    Use this exact section structure:
+    1) "## Sales Report - <scope>"
+    2) "### Summary"
+    3) "### Breakdown"
+    4) "### Min/Max Analysis"
+    5) "### Insight"
+
+    Requirements:
+    - Use multiline Markdown with bullets under Breakdown and Min/Max Analysis.
+    - Include at least three available metrics: revenue, units, avg_price, rows.
+    - Include at least one valid segmentation using quarter/region/subclass/sku.
+    - Include both global and local min/max statements from tool output.
+    - Show an explicit drill path: what insight was found first, what was drilled next, and what other area was investigated afterward.
+    - Do not use unsupported fields unless explicitly available in tool output.
+    - No placeholders.
 
     Output *only* the report text. Do not add introductions or explanations.
     """,
-    description="Writes the initial OLAP report draft based on the topic, aiming for some initial substance.",
-    tools=[fetch_sales_olap],
+    description="Writes a full first-pass OLAP report grounded in tool data.",
+    tools=[investigate_sales_drilldown, fetch_sales_olap],
     output_key=STATE_CURRENT_DOC,
 )
 
@@ -116,12 +142,20 @@ report_gen_critic_agent = LlmAgent(
     {{{{current_document}}}}
     ```
 
+    **Allowed Dataset Metrics and Dimensions:**
+    - Metrics: revenue, units, avg_price, rows
+    - Dimensions: quarter, region, subclass, sku
+    - Not available unless explicitly computed from tool output: orders, channel, retention
+
     **Completion Criteria (ALL must be met):**
     1. At least 4 sentences long
-    2. Covers at least three OLAP-style metrics (e.g., revenue, orders, AOV, retention)
-    3. Includes at least one segmentation or slice (e.g., by region, product, channel, or time)
+    2. Covers at least three metrics available in this dataset (e.g., revenue, units, avg_price, rows)
+    3. Includes at least one segmentation or slice using available dimensions (quarter, region, subclass, or sku)
     4. States one brief insight or trend
     5. Properly formatted as multiline Markdown (not a single line)
+    6. Contains no placeholders like "TBD", "N/A", "placeholder", or "<...>"
+    7. Contains no unsupported claims/fields (e.g., channel or retention when not present in data)
+    8. Shows an insight-led drill sequence (driver -> deeper cut -> contrast area)
 
     **Task:**
     Check the document against the criteria above.
@@ -156,8 +190,14 @@ report_gen_refiner_agent = LlmAgent(
     Then output the current document unchanged: {{{{current_document}}}}
     Never return an empty response in this branch.
     ELSE (the critique contains actionable feedback):
-    Carefully apply the suggestions to improve the 'Current Document'. Output *only* the refined report text.
+    FIRST: Call investigate_sales_drilldown to refresh insight-led drill context.
+    - Infer quarter/subclass/region from current document or critique when possible.
+    - If unsure, call investigate_sales_drilldown without filters.
+    SECOND: If needed for numeric detail, call fetch_sales_olap for supporting breakdown values.
+    THIRD: Carefully apply the suggestions to improve the 'Current Document'. Output *only* the refined report text.
     Keep all factual values consistent with the data already used in the draft.
+    Do NOT invent metrics or dimensions.
+    If data for a requested metric/dimension is unavailable, state that explicitly.
 
     Formatting requirements for the refined report:
     - Use Markdown.
@@ -174,7 +214,7 @@ report_gen_refiner_agent = LlmAgent(
     Do not add explanations. Always output a non-empty report document.
     """,
     description="Refines the report based on critique, or calls exit_loop if critique indicates completion.",
-    tools=[exit_loop],
+    tools=[exit_loop, investigate_sales_drilldown, fetch_sales_olap],
     output_key=STATE_CURRENT_DOC,
 )
 
@@ -182,7 +222,7 @@ report_gen_refiner_agent = LlmAgent(
 report_gen_loop_agent = LoopAgent(
     name="report_gen_loop",
     sub_agents=[report_gen_critic_agent, report_gen_refiner_agent],
-    max_iterations=5,
+    max_iterations=3,
     after_agent_callback=save_report_after_loop,
 )
 
@@ -190,5 +230,5 @@ report_gen_loop_agent = LoopAgent(
 root_agent = SequentialAgent(
     name="report_gen",
     sub_agents=[report_gen_initial_agent, report_gen_loop_agent],
-    description="Writes an initial OLAP report, iteratively refines it with critique, and saves final markdown output programmatically.",
+    description="Writes an initial OLAP report, iteratively refines it with critique, and saves final markdown output.",
 )

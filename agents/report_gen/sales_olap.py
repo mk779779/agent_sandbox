@@ -192,3 +192,121 @@ def fetch_sales_olap(
             "region": sorted({r["region"] for r in SALES_OLAP_FACTS}),
         },
     }
+
+
+def _total_revenue(rows: list[dict[str, Any]]) -> int:
+    return sum(r["revenue"] for r in rows)
+
+
+def _top_bottom(entries: list[dict[str, Any]]) -> dict[str, Any]:
+    if not entries:
+        return {"top": None, "bottom": None}
+    ordered = sorted(entries, key=lambda x: x["revenue"])
+    return {"bottom": ordered[0], "top": ordered[-1]}
+
+
+def _pct(numerator: float, denominator: float) -> float:
+    if denominator == 0:
+        return 0.0
+    return round((numerator / denominator) * 100, 2)
+
+
+def investigate_sales_drilldown(
+    quarter: str = "",
+    subclass: str = "",
+    region: str = "",
+) -> dict[str, Any]:
+    """
+    Analyst-style drilldown:
+    1) Baseline snapshot
+    2) Identify strongest/weakest area
+    3) Drill into driver area
+    4) Cross-check another area for contrast
+    """
+    normalized_quarter = _normalize_quarter(quarter)
+    if quarter and not normalized_quarter:
+        return {
+            "error": f"Unsupported quarter '{quarter}'. Use Q1, Q2, Q3, or Q4.",
+            "available_quarters": sorted(VALID_QUARTERS),
+        }
+
+    base_rows = [
+        r for r in SALES_OLAP_FACTS if (not normalized_quarter or r["quarter"] == normalized_quarter)
+    ]
+    if region:
+        region_clean = region.strip().upper()
+        base_rows = [r for r in base_rows if r["region"] == region_clean]
+    if not base_rows:
+        return {"message": "No matching data for requested scope."}
+
+    overall_revenue = _total_revenue(base_rows)
+    overall_units = sum(r["units"] for r in base_rows)
+    overall_avg_price = round(overall_revenue / max(overall_units, 1), 2)
+
+    by_subclass = _aggregate(base_rows, ("subclass",))
+    subclass_extrema = _top_bottom(by_subclass)
+    top_subclass = subclass_extrema["top"]["key"]["subclass"] if subclass_extrema["top"] else None
+    bottom_subclass = subclass_extrema["bottom"]["key"]["subclass"] if subclass_extrema["bottom"] else None
+
+    drill_subclass = subclass.strip() if subclass else top_subclass
+    drill_rows = [r for r in base_rows if r["subclass"].lower() == drill_subclass.lower()] if drill_subclass else []
+    by_sku_in_drill = _aggregate(drill_rows, ("sku",))
+    sku_extrema = _top_bottom(by_sku_in_drill)
+
+    by_region_in_drill = _aggregate(drill_rows, ("region",))
+    region_extrema = _top_bottom(by_region_in_drill)
+
+    # Follow-up area: contrast with weakest subclass at top-level to mimic analyst pivot.
+    contrast_rows = [r for r in base_rows if r["subclass"] == bottom_subclass] if bottom_subclass else []
+    contrast_by_region = _aggregate(contrast_rows, ("region",))
+    contrast_extrema = _top_bottom(contrast_by_region)
+
+    top_subclass_revenue = subclass_extrema["top"]["revenue"] if subclass_extrema["top"] else 0
+    bottom_subclass_revenue = subclass_extrema["bottom"]["revenue"] if subclass_extrema["bottom"] else 0
+
+    return {
+        "scope": {
+            "quarter": normalized_quarter,
+            "region": region.strip().upper() if region else None,
+        },
+        "baseline": {
+            "revenue": overall_revenue,
+            "units": overall_units,
+            "avg_price": overall_avg_price,
+            "subclass_count": len(by_subclass),
+            "top_subclass": subclass_extrema["top"],
+            "bottom_subclass": subclass_extrema["bottom"],
+        },
+        "insight_1_primary_driver": {
+            "statement": (
+                f"{top_subclass} is the primary revenue driver with "
+                f"{_pct(top_subclass_revenue, overall_revenue)}% share."
+                if top_subclass
+                else "No primary driver available."
+            ),
+            "driver_subclass": top_subclass,
+        },
+        "drill_1_within_driver": {
+            "subclass": drill_subclass,
+            "sku_top": sku_extrema["top"],
+            "sku_bottom": sku_extrema["bottom"],
+            "region_top": region_extrema["top"],
+            "region_bottom": region_extrema["bottom"],
+        },
+        "insight_2_contrast_area": {
+            "statement": (
+                f"{bottom_subclass} underperforms at {_pct(bottom_subclass_revenue, overall_revenue)}% share; "
+                "investigate weakest region for recovery."
+                if bottom_subclass
+                else "No contrast area available."
+            ),
+            "contrast_subclass": bottom_subclass,
+            "region_top": contrast_extrema["top"],
+            "region_bottom": contrast_extrema["bottom"],
+        },
+        "recommended_next_questions": [
+            f"Drill from subclass '{top_subclass}' to SKU margin/price mix analysis.",
+            f"Investigate region gap inside '{drill_subclass}' and test if pricing or volume drives variance.",
+            f"Create turnaround plan for '{bottom_subclass}' in its weakest region.",
+        ],
+    }

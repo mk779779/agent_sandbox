@@ -6,12 +6,14 @@ It now includes a parameterized OLAP fetch tool backed by a simple in-repo sales
 
 - Data file: `report_gen/sales_olap.py`
 - Tool: `fetch_sales_olap(quarter, subclass, sku, region)`
+- Insight-drill tool: `investigate_sales_drilldown(quarter, subclass, region)`
 - Final output file: `outputs/latest_report.md` (overwritten each new run)
 - Returns:
   - filtered summary (revenue, units, avg price)
   - global min/max revenue (across subclass+SKU in scope)
   - local min/max revenue (by subclass, SKU, or region depending on drill depth)
   - dimensional breakdowns
+  - insight-led drill path (driver -> deeper cut -> contrast area)
 
 ## How the Loop Agent Flow Works
 
@@ -25,17 +27,17 @@ User prompt ("Q3 revenue report")
         ▼
 ┌─────────────────────┐
 │ report_gen_initial   │  Calls fetch_sales_olap, then writes
-│ (LlmAgent)          │  a bare-bones 1-2 sentence report draft
+│ (LlmAgent)          │  a full structured first-pass report
 └────────┬────────────┘
          │ saves draft → state["current_document"]
          ▼
 ```
 
-### Phase 2: Refinement Loop (up to 5 iterations)
+### Phase 2: Refinement Loop (up to 3 iterations)
 
 ```text
 ┌──────────────────────────────────────────────────┐
-│  report_gen_loop (LoopAgent, max_iterations=5)   │
+│  report_gen_loop (LoopAgent, max_iterations=3)   │
 │                                                  │
 │  ┌────────────────────┐                          │
 │  │ report_gen_critic   │  Reads state["current_document"]
@@ -83,7 +85,7 @@ The filename stays the same and is overwritten on each new run.
 The loop ends when **either**:
 
 - The **Critic** responds with exactly `"No major issues found."` and the **Refiner** calls the `exit_loop` tool (which sets `escalate = True`)
-- The loop hits the **max 5 iterations** safety limit
+- The loop hits the **max 3 iterations** safety limit
 
 ## Setup
 
