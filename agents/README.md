@@ -35,6 +35,33 @@ Flow:
 2. Critic/refiner loop (max 3 iterations)
 3. Save final markdown artifact
 
+### Agent Graph
+
+```text
+User Prompt
+   |
+   v
+SequentialAgent: report_gen
+   |
+   +--> LlmAgent: report_gen_initial
+   |      |- build_analysis_plan(...)
+   |      |- execute_query_spec(...)  [baseline]
+   |      |- execute_query_spec(...)  [pivot/contrast]
+   |      `- investigate_sales_drilldown(...)
+   |
+   `--> LoopAgent: report_gen_loop (max 3)
+          |
+          +--> LlmAgent: report_gen_critic
+          |      `- validate report criteria
+          |
+          `--> LlmAgent: report_gen_refiner
+                 |- if pass: exit_loop()
+                 `- else: re-plan + re-execute + refine
+
+After loop:
+save_report_after_loop -> outputs/reports/latest_report.md
+```
+
 ## QuerySpec And AnalysisPlan
 
 - `QuerySpec` defines:
@@ -50,6 +77,74 @@ Flow:
   - stop rules
 
 This keeps drill logic explicit and auditable instead of prompt-only.
+
+### Example QuerySpec
+
+```json
+{
+  "filters": {
+    "quarter": "Q4",
+    "subclass": "Electronics",
+    "sku": null,
+    "region": null
+  },
+  "dimensions": ["sku"],
+  "metrics": ["revenue", "units", "avg_price"],
+  "compare_to": "previous_quarter",
+  "ranking": {
+    "metric": "revenue",
+    "order": "desc",
+    "limit": 5
+  }
+}
+```
+
+### Example AnalysisPlan
+
+```json
+{
+  "analysis_goal": "find_growth_and_risk_drivers",
+  "scope_filters": {
+    "quarter": "Q4",
+    "subclass": "Electronics",
+    "sku": null,
+    "region": null
+  },
+  "steps": [
+    {
+      "step_id": "baseline",
+      "objective": "Establish KPI baseline and rank major contributors.",
+      "query_spec": {
+        "dimensions": ["sku"],
+        "metrics": ["revenue", "units", "avg_price", "rows"]
+      }
+    },
+    {
+      "step_id": "driver_drill",
+      "objective": "Drill into strongest contributor for deeper drivers.",
+      "query_spec": {
+        "dimensions": ["region"],
+        "metrics": ["revenue", "units", "avg_price"]
+      }
+    },
+    {
+      "step_id": "contrast_pivot",
+      "objective": "Pivot to weakest area for recovery contrast.",
+      "query_spec": {
+        "dimensions": ["region"],
+        "metrics": ["revenue", "units", "avg_price"]
+      }
+    }
+  ],
+  "pivot_rules": [
+    "If top contributor share < 30%, pivot to region concentration.",
+    "If anomalies are present, prioritize anomaly branch."
+  ],
+  "stop_rules": [
+    "Stop after 4+ quantified findings and 2 actionable recommendations."
+  ]
+}
+```
 
 ## Report Quality Gate
 
