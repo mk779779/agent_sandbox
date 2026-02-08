@@ -32,14 +32,18 @@ def exit_loop(tool_context: ToolContext):
     return {}
 
 
-def save_final_report(markdown: str) -> dict:
-    """Save the final report markdown to agents/outputs/latest_report.md."""
+def save_final_report(tool_context: ToolContext) -> dict:
+    """Save state['current_document'] to agents/outputs/latest_report.md."""
+    markdown = tool_context.state.get(STATE_CURRENT_DOC, "")
     agents_dir = Path(__file__).resolve().parents[1]
     output_dir = agents_dir / "outputs"
     output_dir.mkdir(parents=True, exist_ok=True)
     output_path = output_dir / "latest_report.md"
     output_path.write_text(markdown, encoding="utf-8")
-    return {"saved_to": str(output_path)}
+    return {
+        "saved_to": str(output_path),
+        "chars_written": len(markdown),
+    }
 
 
 # --- Agent Definitions ---
@@ -155,12 +159,12 @@ report_gen_save_agent = LlmAgent(
     instruction="""
     Save the final report from state to disk.
 
-    You MUST call save_final_report once with:
-    - markdown={{current_document}}
+    You MUST call save_final_report exactly once with no arguments.
 
     After the tool call, output only {{current_document}}.
     """,
     tools=[save_final_report],
+    output_key=STATE_CURRENT_DOC,
 )
 
 # STEP 4: Overall Sequential Pipeline (root_agent required for adk web)
