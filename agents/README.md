@@ -172,6 +172,23 @@ poetry install
 export OPENAI_API_KEY=your-openai-api-key
 ```
 
+### Environment Variables
+
+Required:
+- `OPENAI_API_KEY`: OpenAI API key used by ADK/LiteLLM.
+
+You can set it either way:
+
+```bash
+export OPENAI_API_KEY=your-openai-api-key
+```
+
+Or via `.env` file in this project directory:
+
+```env
+OPENAI_API_KEY=your-openai-api-key
+```
+
 ## Run
 
 ```bash
