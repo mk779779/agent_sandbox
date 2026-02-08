@@ -10,6 +10,7 @@ It now includes a parameterized OLAP fetch tool backed by a simple in-repo sales
 - Final output file: `outputs/reports/latest_report.md` (overwritten each new run)
 - Returns:
   - filtered summary (revenue, units, avg price)
+  - period context vs previous quarter (when quarter is specified)
   - global min/max revenue (across subclass+SKU in scope)
   - local min/max revenue (by subclass, SKU, or region depending on drill depth)
   - dimensional breakdowns
@@ -52,13 +53,13 @@ User prompt ("Q3 revenue report")
 │  ┌────────────────────┐                          │
 │  │ report_gen_critic   │  Reads state["current_document"]
 │  │ (LlmAgent)         │  and checks quality criteria:
-│  │                     │    1. At least 4 sentences
-│  │                     │    2. 3+ OLAP metrics covered
-│  │                     │    3. At least 1 segmentation/slice
+│  │                     │    1. Required OLAP report section structure
+│  │                     │    2. KPI snapshot with valid metrics
+│  │                     │    3. Scoped segmentation + min/max coverage
 │  │                     │    4. Insight-led drill path
-│  │                     │    5. Quantified impact comparisons
-│  │                     │    6. Concrete actions (strong + weak performers)
-│  │                     │    7. Multiline Markdown + no placeholders
+│  │                     │    5. Quantified impact findings (share/gap/variance)
+│  │                     │    6. Risks/caveats explicitly stated
+│  │                     │    7. Concrete actions (strong + weak performers)
 │  └────────┬───────────┘
 │           │ saves feedback → state["criticism"]
 │           ▼

@@ -241,6 +241,18 @@ def _pct(numerator: float, denominator: float) -> float:
     return round((numerator / denominator) * 100, 2)
 
 
+def _prev_quarter(quarter: str | None) -> str | None:
+    if not quarter:
+        return None
+    order = list(QUARTERS)
+    if quarter not in order:
+        return None
+    idx = order.index(quarter)
+    if idx == 0:
+        return None
+    return order[idx - 1]
+
+
 def investigate_sales_drilldown(
     quarter: str = "",
     subclass: str = "",
@@ -272,6 +284,25 @@ def investigate_sales_drilldown(
     overall_revenue = _total_revenue(base_rows)
     overall_units = sum(r["units"] for r in base_rows)
     overall_avg_price = round(overall_revenue / max(overall_units, 1), 2)
+    prev_quarter = _prev_quarter(normalized_quarter)
+    period_variance = None
+    if normalized_quarter and prev_quarter:
+        prev_rows = [r for r in SALES_OLAP_FACTS if r["quarter"] == prev_quarter]
+        if region:
+            prev_rows = [r for r in prev_rows if r["region"] == region.strip().upper()]
+        prev_revenue = _total_revenue(prev_rows)
+        prev_units = sum(r["units"] for r in prev_rows)
+        prev_avg_price = round(prev_revenue / max(prev_units, 1), 2)
+        period_variance = {
+            "current_quarter": normalized_quarter,
+            "previous_quarter": prev_quarter,
+            "revenue_delta": overall_revenue - prev_revenue,
+            "revenue_delta_pct": _pct(overall_revenue - prev_revenue, prev_revenue),
+            "units_delta": overall_units - prev_units,
+            "units_delta_pct": _pct(overall_units - prev_units, prev_units),
+            "avg_price_delta": round(overall_avg_price - prev_avg_price, 2),
+            "avg_price_delta_pct": _pct(overall_avg_price - prev_avg_price, prev_avg_price),
+        }
 
     by_subclass = _aggregate(base_rows, ("subclass",))
     by_region = _aggregate(base_rows, ("region",))
@@ -336,6 +367,7 @@ def investigate_sales_drilldown(
             "bottom_subclass": subclass_extrema["bottom"],
             "top_region": region_extrema_all["top"],
             "bottom_region": region_extrema_all["bottom"],
+            "period_variance_vs_previous_quarter": period_variance,
         },
         "insight_1_primary_driver": {
             "statement": (

@@ -24,3 +24,9 @@ outputs/
 .vscode/
 *.swp
 *.swo
+
+# ADK runtime state (local/dev only)
+.adk/
+**/.adk/
+**/.adk/session.db
+**/.adk/session.db-*

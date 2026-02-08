@@ -107,20 +107,24 @@ report_gen_initial_agent = LlmAgent(
 
     SECOND: Write a complete first-pass report grounded in tool output.
     Use this exact section structure:
-    1) "## Sales Report - <scope>"
-    2) "### Summary"
-    3) "### Breakdown"
-    4) "### Min/Max Analysis"
-    5) "### Insight"
+    1) "## OLAP Performance Report - <scope>"
+    2) "### Executive Summary"
+    3) "### KPI Snapshot"
+    4) "### Drivers and Variance"
+    5) "### Drilldown Findings"
+    6) "### Risks and Data Caveats"
+    7) "### Recommended Actions"
 
     Requirements:
-    - Use multiline Markdown with bullets under Breakdown and Min/Max Analysis.
-    - Include at least three available metrics: revenue, units, avg_price, rows.
-    - Include at least one valid segmentation using quarter/region/subclass/sku.
-    - Include both global and local min/max statements from tool output.
-    - Show an explicit drill path: what insight was found first, what was drilled next, and what other area was investigated afterward.
-    - Prioritize findings by business impact, with at least two quantified comparisons (share %, gap, concentration %, or best-vs-worst deltas).
-    - Include one actionable recommendation tied to the weakest area and one to the strongest area.
+    - Use multiline Markdown and include bullets in Drivers and Variance, Drilldown Findings, and Recommended Actions.
+    - In KPI Snapshot, include at least three available metrics: revenue, units, avg_price, rows.
+    - Include explicit context for the scope and segmentation used (quarter/region/subclass/sku).
+    - Include both global and local min/max statements from tool output with clear scope labels.
+    - Show a full drill path: baseline -> primary driver -> deeper cut -> contrast area.
+    - Include at least four quantified findings (for example share %, gap $, concentration %, best-vs-worst spread, or period delta when available).
+    - If anomaly candidates are present, call out at least one with the related dimension keys.
+    - Include at least two concrete actions: one to scale a strong performer and one to recover a weak performer.
+    - Keep claims auditable: every numeric claim must be tied to returned tool values.
     - Do not use unsupported fields unless explicitly available in tool output.
     - No placeholders.
 
@@ -150,16 +154,24 @@ report_gen_critic_agent = LlmAgent(
     - Not available unless explicitly computed from tool output: orders, channel, retention
 
     **Completion Criteria (ALL must be met):**
-    1. At least 4 sentences long
-    2. Covers at least three metrics available in this dataset (e.g., revenue, units, avg_price, rows)
-    3. Includes at least one segmentation or slice using available dimensions (quarter, region, subclass, or sku)
-    4. States one brief insight or trend
-    5. Properly formatted as multiline Markdown (not a single line)
-    6. Contains no placeholders like "TBD", "N/A", "placeholder", or "<...>"
-    7. Contains no unsupported claims/fields (e.g., channel or retention when not present in data)
-    8. Shows an insight-led drill sequence (driver -> deeper cut -> contrast area)
-    9. Includes at least two quantified impact comparisons (for example share %, gap $, concentration %, or regional spread)
-    10. Includes at least one concrete action recommendation for a weak performer and one for a strong performer
+    1. Uses this exact section structure:
+       - "## OLAP Performance Report - <scope>"
+       - "### Executive Summary"
+       - "### KPI Snapshot"
+       - "### Drivers and Variance"
+       - "### Drilldown Findings"
+       - "### Risks and Data Caveats"
+       - "### Recommended Actions"
+    2. KPI Snapshot includes at least three valid metrics from this dataset (revenue, units, avg_price, rows)
+    3. Includes at least one explicit segmentation/slice using valid dimensions (quarter, region, subclass, sku)
+    4. Includes both global and local min/max with scope labels
+    5. Shows an explicit drill sequence (baseline -> driver -> deeper cut -> contrast area)
+    6. Contains at least four quantified findings (share, gap, concentration, spread, or period delta when available)
+    7. Includes anomaly discussion if anomaly candidates are provided by tool output
+    8. Includes at least two concrete recommended actions (one offensive, one defensive)
+    9. Includes a caveat/limitation section grounded in available data scope
+    10. Proper multiline Markdown; no placeholders ("TBD", "N/A", "placeholder", "<...>")
+    11. Contains no unsupported claims/fields (e.g., channel or retention when not present in data)
 
     **Task:**
     Check the document against the criteria above.
@@ -203,16 +215,19 @@ report_gen_refiner_agent = LlmAgent(
     Do NOT invent metrics or dimensions.
     If data for a requested metric/dimension is unavailable, state that explicitly.
     Ensure insights are prioritized by impact and include concrete recommendations for both upside scaling and downside recovery.
+    Ensure the final document satisfies all critic completion criteria.
 
     Formatting requirements for the refined report:
     - Use Markdown.
     - Use this exact section structure:
-      1) "## Sales Report - <scope>"
-      2) "### Summary"
-      3) "### Breakdown"
-      4) "### Min/Max Analysis"
-      5) "### Insight"
-    - Use bullets under Breakdown and Min/Max Analysis.
+      1) "## OLAP Performance Report - <scope>"
+      2) "### Executive Summary"
+      3) "### KPI Snapshot"
+      4) "### Drivers and Variance"
+      5) "### Drilldown Findings"
+      6) "### Risks and Data Caveats"
+      7) "### Recommended Actions"
+    - Use bullets under Drivers and Variance, Drilldown Findings, and Recommended Actions.
     - Keep line breaks and blank lines between sections.
     - Never output the whole report as a single line.
 
