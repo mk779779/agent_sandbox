@@ -65,7 +65,7 @@ User prompt ("Q3 revenue report")
 
 ### Phase 3: Save Output (runs once)
 
-After loop completion, the pipeline calls a save tool that writes the final report to:
+After loop completion, an ADK `after_agent_callback` saves the final report to:
 
 - `outputs/latest_report.md`
 

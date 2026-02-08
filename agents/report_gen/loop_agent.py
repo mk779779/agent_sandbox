@@ -7,6 +7,7 @@ Based on: https://google.github.io/adk-docs/agents/workflow-agents/loop-agents/#
 from pathlib import Path
 
 from google.adk.agents import LlmAgent, LoopAgent, SequentialAgent
+from google.adk.agents.callback_context import CallbackContext
 from google.adk.models.lite_llm import LiteLlm
 from google.adk.tools.tool_context import ToolContext
 
@@ -24,26 +25,57 @@ COMPLETION_PHRASE = "No major issues found."
 
 
 # --- Tool Definition ---
+def _resolve_current_document(state) -> str:
+    """Get current document from direct or namespaced state keys."""
+    markdown = state.get(STATE_CURRENT_DOC) if hasattr(state, "get") else None
+    if isinstance(markdown, str) and markdown.strip():
+        return markdown
+
+    state_dict = state.to_dict() if hasattr(state, "to_dict") else dict(state or {})
+    for key, value in state_dict.items():
+        if key.endswith(f".{STATE_CURRENT_DOC}") and isinstance(value, str) and value.strip():
+            return value
+    return ""
+
+
 def exit_loop(tool_context: ToolContext):
     """Call this function ONLY when the critique indicates no further changes are needed, signaling the iterative process should end."""
     print(f"  [Tool Call] exit_loop triggered by {tool_context.agent_name}")
+    # Deterministic local persistence on normal loop completion.
+    markdown = _resolve_current_document(tool_context.state or {})
+    if markdown:
+        _save_report_markdown(markdown)
+    else:
+        print("exit_loop: no non-empty current_document found in state.")
     tool_context.actions.escalate = True
     tool_context.actions.skip_summarization = True
     return {}
 
 
-def save_final_report(tool_context: ToolContext) -> dict:
-    """Save state['current_document'] to agents/outputs/latest_report.md."""
-    markdown = tool_context.state.get(STATE_CURRENT_DOC, "")
+def _save_report_markdown(markdown: str) -> dict:
+    """Save markdown to agents/outputs/latest_report.md."""
     agents_dir = Path(__file__).resolve().parents[1]
     output_dir = agents_dir / "outputs"
     output_dir.mkdir(parents=True, exist_ok=True)
     output_path = output_dir / "latest_report.md"
     output_path.write_text(markdown, encoding="utf-8")
+    print("_save_report_markdown:", markdown)
     return {
         "saved_to": str(output_path),
         "chars_written": len(markdown),
     }
+
+
+def save_report_after_loop(callback_context: CallbackContext):
+    """Programmatically persist the latest report after loop completion."""
+    state = callback_context.state
+    markdown = _resolve_current_document(state)
+    if not markdown:
+        keys = list(state.to_dict().keys()) if hasattr(state, "to_dict") else []
+        print("save_report_after_loop: no non-empty current_document found in state keys:", keys)
+        return None
+    _save_report_markdown(markdown)
+    return None
 
 
 # --- Agent Definitions ---
@@ -120,7 +152,9 @@ report_gen_refiner_agent = LlmAgent(
     **Task:**
     Analyze the 'Critique/Suggestions'.
     IF the critique is *exactly* "{COMPLETION_PHRASE}":
-    You MUST call the 'exit_loop' function. Do not output any text.
+    You MUST call the 'exit_loop' function.
+    Then output the current document unchanged: {{{{current_document}}}}
+    Never return an empty response in this branch.
     ELSE (the critique contains actionable feedback):
     Carefully apply the suggestions to improve the 'Current Document'. Output *only* the refined report text.
     Keep all factual values consistent with the data already used in the draft.
@@ -137,7 +171,7 @@ report_gen_refiner_agent = LlmAgent(
     - Keep line breaks and blank lines between sections.
     - Never output the whole report as a single line.
 
-    Do not add explanations. Either output the refined document OR call the exit_loop function.
+    Do not add explanations. Always output a non-empty report document.
     """,
     description="Refines the report based on critique, or calls exit_loop if critique indicates completion.",
     tools=[exit_loop],
@@ -149,27 +183,12 @@ report_gen_loop_agent = LoopAgent(
     name="report_gen_loop",
     sub_agents=[report_gen_critic_agent, report_gen_refiner_agent],
     max_iterations=5,
+    after_agent_callback=save_report_after_loop,
 )
 
-# STEP 3: Persist final report to disk
-report_gen_save_agent = LlmAgent(
-    name="report_gen_save",
-    model=LiteLlm(model=OPENAI_MODEL),
-    include_contents="none",
-    instruction="""
-    Save the final report from state to disk.
-
-    You MUST call save_final_report exactly once with no arguments.
-
-    After the tool call, output only {{current_document}}.
-    """,
-    tools=[save_final_report],
-    output_key=STATE_CURRENT_DOC,
-)
-
-# STEP 4: Overall Sequential Pipeline (root_agent required for adk web)
+# STEP 3: Overall Sequential Pipeline (root_agent required for adk web)
 root_agent = SequentialAgent(
     name="report_gen",
-    sub_agents=[report_gen_initial_agent, report_gen_loop_agent, report_gen_save_agent],
-    description="Writes an initial OLAP report, iteratively refines it with critique, and saves final markdown output.",
+    sub_agents=[report_gen_initial_agent, report_gen_loop_agent],
+    description="Writes an initial OLAP report, iteratively refines it with critique, and saves final markdown output programmatically.",
 )
