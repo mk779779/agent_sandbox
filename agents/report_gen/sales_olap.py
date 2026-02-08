@@ -75,6 +75,8 @@ def _build_sales_olap_facts() -> list[dict[str, Any]]:
 SALES_OLAP_FACTS: list[dict[str, Any]] = _build_sales_olap_facts()
 
 VALID_QUARTERS = {"Q1", "Q2", "Q3", "Q4"}
+VALID_DIMENSIONS = {"quarter", "region", "subclass", "sku"}
+VALID_METRICS = {"revenue", "units", "avg_price", "rows"}
 
 
 def _normalize_quarter(quarter: str):
@@ -111,6 +113,24 @@ def _aggregate(rows: list[dict[str, Any]], keys: tuple[str, ...]) -> list[dict[s
         units = bucket["units"] or 1
         bucket["avg_price"] = round(bucket["revenue"] / units, 2)
     return list(buckets.values())
+
+
+def _parse_csv_values(raw: str) -> list[str]:
+    if not raw:
+        return []
+    return [p.strip() for p in raw.split(",") if p.strip()]
+
+
+def _sanitize_dimensions(raw: str) -> list[str]:
+    parsed = [p.lower() for p in _parse_csv_values(raw)]
+    dims = [d for d in parsed if d in VALID_DIMENSIONS]
+    return dims or ["subclass"]
+
+
+def _sanitize_metrics(raw: str) -> list[str]:
+    parsed = [p.lower() for p in _parse_csv_values(raw)]
+    metrics = [m for m in parsed if m in VALID_METRICS]
+    return metrics or ["revenue", "units", "avg_price"]
 
 
 def _min_max(entries: list[dict[str, Any]]) -> dict[str, Any]:
@@ -253,6 +273,276 @@ def _prev_quarter(quarter: str | None) -> str | None:
     return order[idx - 1]
 
 
+def build_query_spec(
+    quarter: str = "",
+    subclass: str = "",
+    sku: str = "",
+    region: str = "",
+    dimensions: str = "subclass",
+    metrics: str = "revenue,units,avg_price",
+    compare_to: str = "previous_quarter",
+    rank_metric: str = "revenue",
+    rank_order: str = "desc",
+    limit: int = 5,
+) -> dict[str, Any]:
+    """
+    Build and validate a deterministic QuerySpec for OLAP analysis.
+    """
+    normalized_quarter = _normalize_quarter(quarter)
+    if quarter and not normalized_quarter:
+        return {
+            "error": f"Unsupported quarter '{quarter}'. Use Q1, Q2, Q3, or Q4.",
+            "available_quarters": sorted(VALID_QUARTERS),
+        }
+
+    dims = _sanitize_dimensions(dimensions)
+    mets = _sanitize_metrics(metrics)
+    cleaned_subclass = subclass.strip() if subclass else None
+    cleaned_sku = sku.strip().upper() if sku else None
+    cleaned_region = region.strip().upper() if region else None
+
+    rank_metric_clean = rank_metric.strip().lower() if rank_metric else "revenue"
+    if rank_metric_clean not in VALID_METRICS:
+        rank_metric_clean = "revenue"
+    rank_order_clean = "asc" if rank_order.strip().lower() == "asc" else "desc"
+    compare_to_clean = "previous_quarter" if compare_to.strip().lower() == "previous_quarter" else "none"
+    try:
+        safe_limit = int(limit or 5)
+    except (TypeError, ValueError):
+        safe_limit = 5
+    safe_limit = min(max(safe_limit, 1), 25)
+
+    query_spec = {
+        "filters": {
+            "quarter": normalized_quarter,
+            "subclass": cleaned_subclass,
+            "sku": cleaned_sku,
+            "region": cleaned_region,
+        },
+        "dimensions": dims,
+        "metrics": mets,
+        "compare_to": compare_to_clean,
+        "ranking": {
+            "metric": rank_metric_clean,
+            "order": rank_order_clean,
+            "limit": safe_limit,
+        },
+    }
+    return {"query_spec": query_spec}
+
+
+def execute_query_spec(
+    quarter: str = "",
+    subclass: str = "",
+    sku: str = "",
+    region: str = "",
+    dimensions: str = "subclass",
+    metrics: str = "revenue,units,avg_price",
+    compare_to: str = "previous_quarter",
+    rank_metric: str = "revenue",
+    rank_order: str = "desc",
+    limit: int = 5,
+) -> dict[str, Any]:
+    """
+    Execute a deterministic QuerySpec and return grouped rows + summary evidence.
+    """
+    spec_result = build_query_spec(
+        quarter=quarter,
+        subclass=subclass,
+        sku=sku,
+        region=region,
+        dimensions=dimensions,
+        metrics=metrics,
+        compare_to=compare_to,
+        rank_metric=rank_metric,
+        rank_order=rank_order,
+        limit=limit,
+    )
+    if "error" in spec_result:
+        return spec_result
+
+    query_spec = spec_result["query_spec"]
+    filters = query_spec["filters"]
+    dims = tuple(query_spec["dimensions"])
+    mets = query_spec["metrics"]
+
+    scope_rows = [
+        r
+        for r in SALES_OLAP_FACTS
+        if (not filters["quarter"] or r["quarter"] == filters["quarter"])
+    ]
+    filtered_rows = [
+        r
+        for r in scope_rows
+        if (not filters["subclass"] or r["subclass"].lower() == filters["subclass"].lower())
+        and (not filters["sku"] or r["sku"] == filters["sku"])
+        and (not filters["region"] or r["region"] == filters["region"])
+    ]
+    if not filtered_rows:
+        return {"query_spec": query_spec, "message": "No matching rows for QuerySpec."}
+
+    grouped = _aggregate(filtered_rows, dims)
+    order_desc = query_spec["ranking"]["order"] == "desc"
+    metric_for_sort = query_spec["ranking"]["metric"]
+    sorted_grouped = sorted(grouped, key=lambda x: x.get(metric_for_sort, 0), reverse=order_desc)
+    top_rows = sorted_grouped[: query_spec["ranking"]["limit"]]
+
+    projected_rows: list[dict[str, Any]] = []
+    for row in top_rows:
+        projected = {"key": row["key"]}
+        for metric in mets:
+            projected[metric] = row.get(metric)
+        projected_rows.append(projected)
+
+    summary = {
+        "rows": len(filtered_rows),
+        "revenue": sum(r["revenue"] for r in filtered_rows),
+        "units": sum(r["units"] for r in filtered_rows),
+    }
+    summary["avg_price"] = round(summary["revenue"] / max(summary["units"], 1), 2)
+
+    comparison = None
+    if query_spec["compare_to"] == "previous_quarter" and filters["quarter"]:
+        prev_q = _prev_quarter(filters["quarter"])
+        if prev_q:
+            prev_rows = [
+                r
+                for r in SALES_OLAP_FACTS
+                if r["quarter"] == prev_q
+                and (not filters["subclass"] or r["subclass"].lower() == filters["subclass"].lower())
+                and (not filters["sku"] or r["sku"] == filters["sku"])
+                and (not filters["region"] or r["region"] == filters["region"])
+            ]
+            prev_rev = sum(r["revenue"] for r in prev_rows)
+            prev_units = sum(r["units"] for r in prev_rows)
+            prev_avg = round(prev_rev / max(prev_units, 1), 2)
+            comparison = {
+                "current_quarter": filters["quarter"],
+                "previous_quarter": prev_q,
+                "revenue_delta": summary["revenue"] - prev_rev,
+                "revenue_delta_pct": _pct(summary["revenue"] - prev_rev, prev_rev),
+                "units_delta": summary["units"] - prev_units,
+                "units_delta_pct": _pct(summary["units"] - prev_units, prev_units),
+                "avg_price_delta": round(summary["avg_price"] - prev_avg, 2),
+                "avg_price_delta_pct": _pct(summary["avg_price"] - prev_avg, prev_avg),
+            }
+
+    return {
+        "query_spec": query_spec,
+        "summary": summary,
+        "grouped_rows": projected_rows,
+        "global_min_max_revenue": _min_max(_aggregate(scope_rows, ("subclass", "sku"))),
+        "local_min_max_revenue": _min_max(grouped),
+        "comparison": comparison,
+    }
+
+
+def build_analysis_plan(
+    analysis_goal: str = "find_growth_and_risk_drivers",
+    quarter: str = "",
+    subclass: str = "",
+    sku: str = "",
+    region: str = "",
+) -> dict[str, Any]:
+    """
+    Build an analyst-style AnalysisPlan with explicit drill and pivot rules.
+    """
+    normalized_quarter = _normalize_quarter(quarter)
+    if quarter and not normalized_quarter:
+        return {
+            "error": f"Unsupported quarter '{quarter}'. Use Q1, Q2, Q3, or Q4.",
+            "available_quarters": sorted(VALID_QUARTERS),
+        }
+
+    scope_filters = {
+        "quarter": normalized_quarter,
+        "subclass": subclass.strip() or None,
+        "sku": sku.strip().upper() or None,
+        "region": region.strip().upper() or None,
+    }
+
+    baseline_dims = "subclass"
+    drill_dims = "sku"
+    if scope_filters["subclass"] and not scope_filters["sku"]:
+        baseline_dims = "sku"
+        drill_dims = "region"
+    if scope_filters["sku"]:
+        baseline_dims = "region"
+        drill_dims = "region"
+
+    baseline_spec = build_query_spec(
+        quarter=normalized_quarter or "",
+        subclass=scope_filters["subclass"] or "",
+        sku=scope_filters["sku"] or "",
+        region=scope_filters["region"] or "",
+        dimensions=baseline_dims,
+        metrics="revenue,units,avg_price,rows",
+        compare_to="previous_quarter",
+        rank_metric="revenue",
+        rank_order="desc",
+        limit=6,
+    ).get("query_spec")
+
+    driver_drill_spec = build_query_spec(
+        quarter=normalized_quarter or "",
+        subclass=scope_filters["subclass"] or "",
+        sku=scope_filters["sku"] or "",
+        region=scope_filters["region"] or "",
+        dimensions=drill_dims,
+        metrics="revenue,units,avg_price",
+        compare_to="previous_quarter",
+        rank_metric="revenue",
+        rank_order="desc",
+        limit=6,
+    ).get("query_spec")
+
+    contrast_spec = build_query_spec(
+        quarter=normalized_quarter or "",
+        subclass="",
+        sku="",
+        region=scope_filters["region"] or "",
+        dimensions="region",
+        metrics="revenue,units,avg_price",
+        compare_to="previous_quarter",
+        rank_metric="revenue",
+        rank_order="asc",
+        limit=4,
+    ).get("query_spec")
+
+    return {
+        "analysis_plan": {
+            "analysis_goal": analysis_goal.strip() or "find_growth_and_risk_drivers",
+            "scope_filters": scope_filters,
+            "steps": [
+                {
+                    "step_id": "baseline",
+                    "objective": "Establish KPI baseline and rank major contributors.",
+                    "query_spec": baseline_spec,
+                },
+                {
+                    "step_id": "driver_drill",
+                    "objective": "Drill into the strongest contributor to isolate granular drivers.",
+                    "query_spec": driver_drill_spec,
+                },
+                {
+                    "step_id": "contrast_pivot",
+                    "objective": "Pivot to weakest area for recovery-oriented contrast.",
+                    "query_spec": contrast_spec,
+                },
+            ],
+            "pivot_rules": [
+                "If top contributor share < 30%, pivot from subclass to region concentration.",
+                "If driver-vs-laggard gap < 10% of total revenue, pivot to SKU-level dispersion.",
+                "If anomalies are present, prioritize anomaly branch before final recommendations.",
+            ],
+            "stop_rules": [
+                "Stop when at least 4 quantified findings and 2 actionable recommendations are evidence-backed.",
+                "Stop when both growth opportunity and downside risk are identified with explicit dimension keys.",
+            ],
+        }
+    }
+
+
 def investigate_sales_drilldown(
     quarter: str = "",
     subclass: str = "",
@@ -353,6 +643,23 @@ def investigate_sales_drilldown(
         anomaly_candidates = low_hits + high_hits
 
     return {
+        "query_spec": build_query_spec(
+            quarter=normalized_quarter or "",
+            subclass=subclass,
+            region=region,
+            dimensions="subclass,sku,region",
+            metrics="revenue,units,avg_price,rows",
+            compare_to="previous_quarter",
+            rank_metric="revenue",
+            rank_order="desc",
+            limit=8,
+        ).get("query_spec"),
+        "analysis_plan": build_analysis_plan(
+            analysis_goal="find_growth_and_risk_drivers",
+            quarter=normalized_quarter or "",
+            subclass=subclass,
+            region=region,
+        ).get("analysis_plan"),
         "scope": {
             "quarter": normalized_quarter,
             "region": region.strip().upper() if region else None,

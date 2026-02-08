@@ -11,7 +11,13 @@ from google.adk.agents.callback_context import CallbackContext
 from google.adk.models.lite_llm import LiteLlm
 from google.adk.tools.tool_context import ToolContext
 
-from .sales_olap import fetch_sales_olap, investigate_sales_drilldown
+from .sales_olap import (
+    build_analysis_plan,
+    build_query_spec,
+    execute_query_spec,
+    fetch_sales_olap,
+    investigate_sales_drilldown,
+)
 
 # --- Constants ---
 # Using LiteLLM format for OpenAI models
@@ -99,13 +105,19 @@ report_gen_initial_agent = LlmAgent(
     instruction="""
     You are a BI analyst generating a production-style OLAP sales report from structured data.
 
-    FIRST: Call the investigate_sales_drilldown tool with best-effort parameters extracted from the user's prompt.
+    FIRST: Call build_analysis_plan with best-effort parameters extracted from the user's prompt.
     - If prompt mentions a quarter (e.g. q1, q2), pass quarter.
-    - If prompt mentions subclass or region, pass those filters too.
-    - If not specified, call without filters to get an overview.
-    - Use its staged outputs (baseline -> primary driver -> drill within driver -> contrast area).
+    - If prompt mentions subclass/sku/region, pass those filters too.
+    - If not specified, call without filters to get an overview plan.
 
-    SECOND: Write a complete first-pass report grounded in tool output.
+    SECOND: Execute the plan evidence.
+    - Call investigate_sales_drilldown for staged drill outputs (baseline -> primary driver -> drill -> contrast).
+    - Call execute_query_spec at least twice for plan coverage:
+      1) baseline slice from plan
+      2) one pivot/contrast slice from plan
+    - Use fetch_sales_olap only when you need additional scoped totals/min-max context.
+
+    THIRD: Write a complete first-pass report grounded in tool output.
     Use this exact section structure:
     1) "## OLAP Performance Report - <scope>"
     2) "### Executive Summary"
@@ -121,6 +133,7 @@ report_gen_initial_agent = LlmAgent(
     - Include explicit context for the scope and segmentation used (quarter/region/subclass/sku).
     - Include both global and local min/max statements from tool output with clear scope labels.
     - Show a full drill path: baseline -> primary driver -> deeper cut -> contrast area.
+    - Show explicit adherence to AnalysisPlan and whether a pivot rule was triggered.
     - Include at least four quantified findings (for example share %, gap $, concentration %, best-vs-worst spread, or period delta when available).
     - If anomaly candidates are present, call out at least one with the related dimension keys.
     - Include at least two concrete actions: one to scale a strong performer and one to recover a weak performer.
@@ -131,7 +144,7 @@ report_gen_initial_agent = LlmAgent(
     Output *only* the report text. Do not add introductions or explanations.
     """,
     description="Writes a full first-pass OLAP report grounded in tool data.",
-    tools=[investigate_sales_drilldown, fetch_sales_olap],
+    tools=[build_analysis_plan, build_query_spec, execute_query_spec, investigate_sales_drilldown, fetch_sales_olap],
     output_key=STATE_CURRENT_DOC,
 )
 
@@ -172,6 +185,7 @@ report_gen_critic_agent = LlmAgent(
     9. Includes a caveat/limitation section grounded in available data scope
     10. Proper multiline Markdown; no placeholders ("TBD", "N/A", "placeholder", "<...>")
     11. Contains no unsupported claims/fields (e.g., channel or retention when not present in data)
+    12. References QuerySpec/AnalysisPlan usage and indicates whether pivot rules were applied
 
     **Task:**
     Check the document against the criteria above.
@@ -206,11 +220,13 @@ report_gen_refiner_agent = LlmAgent(
     Then output the current document unchanged: {{{{current_document}}}}
     Never return an empty response in this branch.
     ELSE (the critique contains actionable feedback):
-    FIRST: Call investigate_sales_drilldown to refresh insight-led drill context.
-    - Infer quarter/subclass/region from current document or critique when possible.
-    - If unsure, call investigate_sales_drilldown without filters.
-    SECOND: If needed for numeric detail, call fetch_sales_olap for supporting breakdown values.
-    THIRD: Carefully apply the suggestions to improve the 'Current Document'. Output *only* the refined report text.
+    FIRST: Call build_analysis_plan to refresh a deterministic analysis plan.
+    - Infer quarter/subclass/sku/region from current document or critique when possible.
+    - If unsure, call build_analysis_plan without filters.
+    SECOND: Call investigate_sales_drilldown to refresh staged drill context.
+    THIRD: Call execute_query_spec for at least one baseline and one contrast/pivot slice.
+    FOURTH: If needed for numeric detail, call fetch_sales_olap for supporting breakdown values.
+    FIFTH: Carefully apply the suggestions to improve the 'Current Document'. Output *only* the refined report text.
     Keep all factual values consistent with the data already used in the draft.
     Do NOT invent metrics or dimensions.
     If data for a requested metric/dimension is unavailable, state that explicitly.
@@ -234,7 +250,7 @@ report_gen_refiner_agent = LlmAgent(
     Do not add explanations. Always output a non-empty report document.
     """,
     description="Refines the report based on critique, or calls exit_loop if critique indicates completion.",
-    tools=[exit_loop, investigate_sales_drilldown, fetch_sales_olap],
+    tools=[exit_loop, build_analysis_plan, build_query_spec, execute_query_spec, investigate_sales_drilldown, fetch_sales_olap],
     output_key=STATE_CURRENT_DOC,
 )
 
