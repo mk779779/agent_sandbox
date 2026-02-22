@@ -1,57 +1,92 @@
-# Testing Agents
+# Agent Sandbox
 
-This directory contains multiple agent implementations for testing and development.
+Repository for ADK-based multi-agent experiments and prototypes.
 
-## Structure
+## Repository Layout
 
-```
-testing/
-├── pyproject.toml          # Shared Poetry configuration
-├── poetry.lock             # Locked dependencies
-├── adk/                    # ADK framework agents
-│   └── iterative_writing/  # Iterative writing agent
-└── [future agents...]      # Add more agent frameworks/folders here
-```
+- `agents/`: runnable ADK agents
+- `models/`: model/design experiments
+- `outputs/`: generated artifacts and design notes (git-ignored)
+- `pyproject.toml`, `poetry.lock`: shared Python dependencies
+
+Current agent packages in `agents/`:
+- `report_gen`: OLAP-style iterative report generation example
+- `sec_kpi_orchestrator`: finance KPI investigation workflow with parallel evidence, root-cause analysis, actions, and visualizations
+
+## Prerequisites
+
+- Python 3.10+
+- Poetry
+- API key(s):
+  - `OPENAI_API_KEY` (used by current `openai/...` model config)
+  - optional `OPENROUTER_API_KEY`
 
 ## Setup
 
-1. Install dependencies with Poetry:
-   ```bash
-   cd testing
-   poetry install
-   ```
-
-2. Set up environment variables (create a `.env` file in this directory if needed):
-   ```
-   OPENAI_API_KEY=your-openai-api-key
-   ```
-
-## Running Agents
-
-### ADK Agents
-
-To run ADK web interface for agents in the `adk/` directory:
+From repo root:
 
 ```bash
-cd testing/adk
+poetry install
+```
+
+Set environment variables (shell or `.env`):
+
+```bash
+export OPENAI_API_KEY=your-key
+# optional
+export OPENROUTER_API_KEY=your-openrouter-key
+```
+
+## Run ADK Web (Local)
+
+Important: run ADK from the `agents/` directory so only agent packages are discovered.
+
+```bash
+cd agents
 poetry run adk web .
 ```
 
-This will start a web server at http://localhost:8000 where you can select and interact with agents.
+Open:
+- `http://127.0.0.1:8000/dev-ui/`
 
-## Adding New Agents
+## Docker Deployment
 
-To add a new agent:
-
-1. Create a new subdirectory under the appropriate framework folder (e.g., `adk/new_agent/`)
-2. Add your agent code with an `agent.py` file that exports `root_agent`
-3. Dependencies are shared via the Poetry configuration at this level
-
-## Dependencies
-
-All agents share the same Poetry environment defined in `pyproject.toml`. To add new dependencies:
+Build from repo root:
 
 ```bash
-cd testing
-poetry add <package-name>
+docker build -t sec-kpi-orchestrator:local .
 ```
+
+Run container:
+
+```bash
+docker run --rm -p 8000:8000 \
+  -e OPENAI_API_KEY=$OPENAI_API_KEY \
+  -e OPENROUTER_API_KEY=$OPENROUTER_API_KEY \
+  sec-kpi-orchestrator:local
+```
+
+Open:
+- `http://127.0.0.1:8000/dev-ui/`
+
+## Outputs and Artifacts
+
+Run outputs are written under `agents/outputs/reports/` (git-ignored), including:
+- report markdown
+- payload JSON
+- trace JSON
+- chart files
+
+Top-level `outputs/` is also git-ignored and intended for design/explanation notes.
+
+## Adding a New Agent
+
+1. Create a new subdirectory under `agents/`.
+2. Add `agent.py` exporting `root_agent`.
+3. Add `__init__.py`.
+4. Start ADK web from `agents/` and verify the new agent appears in UI.
+
+## Notes
+
+- If code changes do not appear in ADK web, restart the ADK server.
+- `adk web --reload` may not be stable in some environments; manual restart is the reliable path.
