@@ -5,6 +5,8 @@ Pattern mirrors report_gen: sequential pipeline with a critic/refiner loop,
 but adds a parallel query fan-out stage for baseline/variance/peer evidence.
 """
 
+import json
+from datetime import datetime, timezone
 from pathlib import Path
 
 from google.adk.agents import LlmAgent, LoopAgent, ParallelAgent, SequentialAgent
@@ -55,16 +57,29 @@ def _save_outputs(markdown: str, payload: str = "") -> dict:
     base_dir = Path(__file__).resolve().parents[1] / "outputs" / "reports"
     base_dir.mkdir(parents=True, exist_ok=True)
 
+    cleaned_markdown = markdown.strip()
+    if cleaned_markdown.startswith("```"):
+        lines = [line for line in cleaned_markdown.splitlines() if not line.strip().startswith("```")]
+        cleaned_markdown = "\n".join(lines).strip()
+
     report_path = base_dir / "latest_sec_kpi_report.md"
-    report_path.write_text(markdown, encoding="utf-8")
+    report_path.write_text(cleaned_markdown, encoding="utf-8")
 
     result = {
         "saved_report": str(report_path),
-        "report_chars": len(markdown),
+        "report_chars": len(cleaned_markdown),
     }
     if payload.strip():
         payload_path = base_dir / "latest_sec_kpi_payload.json"
-        payload_path.write_text(payload, encoding="utf-8")
+        cleaned_payload = payload.strip()
+        if cleaned_payload.startswith("```"):
+            lines = [line for line in cleaned_payload.splitlines() if not line.strip().startswith("```")]
+            cleaned_payload = "\n".join(lines).strip()
+        try:
+            payload_obj = json.loads(cleaned_payload)
+            payload_path.write_text(json.dumps(payload_obj, indent=2), encoding="utf-8")
+        except json.JSONDecodeError:
+            payload_path.write_text(cleaned_payload, encoding="utf-8")
         result["saved_payload"] = str(payload_path)
 
     print("_save_outputs:", result)
@@ -84,6 +99,25 @@ def exit_loop(tool_context: ToolContext):
 def save_after_loop(callback_context: CallbackContext):
     """Save report deterministically at the end of the loop."""
     state = callback_context.state
+    state_dict = state.to_dict() if hasattr(state, "to_dict") else dict(state or {})
+    trace_payload = {
+        "captured_at_utc": datetime.now(timezone.utc).isoformat(),
+        "state_keys": sorted(state_dict.keys()),
+        "request_contract": _resolve_state_text(state, STATE_REQUEST),
+        "analysis_plan": _resolve_state_text(state, STATE_PLAN),
+        "baseline_result": _resolve_state_text(state, STATE_BASELINE),
+        "variance_result": _resolve_state_text(state, STATE_VARIANCE),
+        "peer_result": _resolve_state_text(state, STATE_PEER),
+        "anomaly_result": _resolve_state_text(state, STATE_ANOMALIES),
+        "root_cause_result": _resolve_state_text(state, STATE_ROOT_CAUSES),
+        "action_result": _resolve_state_text(state, STATE_ACTIONS),
+        "critic_feedback": _resolve_state_text(state, STATE_CRITICISM),
+    }
+    base_dir = Path(__file__).resolve().parents[1] / "outputs" / "reports"
+    base_dir.mkdir(parents=True, exist_ok=True)
+    trace_path = base_dir / "latest_sec_kpi_trace.json"
+    trace_path.write_text(json.dumps(trace_payload, indent=2), encoding="utf-8")
+
     markdown = _resolve_state_text(state, STATE_CURRENT_DOC)
     payload = _resolve_state_text(state, STATE_ACTIONS)
     if markdown:
