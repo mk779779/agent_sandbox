@@ -399,7 +399,16 @@ def execute_kpi_peer_query(
         company_val = float(current[metric])
         peer_val = float(peer_values.get(metric, 0.0))
         delta = round(company_val - peer_val, 2)
-        delta_pct = _pct_delta(company_val, peer_val)
+        directionality = _metric_direction(metric)
+        if directionality == "lower_is_better":
+            # Improvement semantics: positive means better than peer for lower-is-better metrics.
+            # Denominator uses peer magnitude for consistent "vs peer" interpretation.
+            if peer_val == 0:
+                delta_pct = 0.0
+            else:
+                delta_pct = round(((peer_val - company_val) / abs(peer_val)) * 100.0, 2)
+        else:
+            delta_pct = _pct_delta(company_val, peer_val)
         peer_rows.append(
             {
                 "metric": metric,
@@ -407,7 +416,7 @@ def execute_kpi_peer_query(
                 "peer_median": peer_val,
                 "peer_delta": delta,
                 "peer_delta_pct": delta_pct,
-                "directionality": _metric_direction(metric),
+                "directionality": directionality,
             }
         )
 

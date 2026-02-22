@@ -30,3 +30,6 @@ outputs/
 **/.adk/
 **/.adk/session.db
 **/.adk/session.db-*
+
+# Local copilot notes
+copilot/

@@ -283,6 +283,7 @@ writer_agent = LlmAgent(
 
     Rules:
     - Include at least 3 quantified findings.
+    - Include every action from action_result.actions exactly once in Recommended Actions.
     - Include at least 2 concrete actions.
     - Each finding must cite query_id evidence.
     - Do not invent fields outside provided tool output.
@@ -304,8 +305,9 @@ critic_agent = LlmAgent(
     1) Required section structure is present.
     2) At least 3 quantified findings.
     3) At least 2 concrete recommendations.
-    4) Evidence section references query IDs.
-    5) No unsupported claims.
+    4) Recommended Actions includes every target present in action_result.actions.
+    5) Evidence section references query IDs.
+    6) No unsupported claims.
 
     If ALL pass, respond exactly:
     {COMPLETION_PHRASE}
