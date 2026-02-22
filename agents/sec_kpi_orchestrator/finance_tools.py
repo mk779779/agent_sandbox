@@ -7,7 +7,11 @@ strictly validated query specs.
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
+
+from google.adk.tools.tool_context import ToolContext
+from google.genai import types
 
 VALID_METRICS = {
     "revenue",
@@ -538,4 +542,173 @@ def map_causes_to_playbooks(
         "query_id": f"playbook_{ticker.upper()}_{period.upper()}",
         "actions": actions,
         "source_query_id": causes["query_id"],
+    }
+
+
+def _build_bar_chart_svg(
+    title: str,
+    subtitle: str,
+    rows: list[tuple[str, float]],
+    unit: str,
+) -> str:
+    width = 960
+    height = 540
+    margin_left = 220
+    margin_right = 70
+    margin_top = 90
+    margin_bottom = 70
+    plot_width = width - margin_left - margin_right
+    plot_height = height - margin_top - margin_bottom
+    if not rows:
+        rows = [("No data", 0.0)]
+
+    max_abs = max(abs(value) for _, value in rows) or 1.0
+    bar_h = max(24, int(plot_height / max(len(rows), 1) * 0.65))
+    gap = max(14, int(plot_height / max(len(rows), 1) * 0.35))
+    axis_x = margin_left + int(plot_width * 0.5)
+
+    def scale(value: float) -> float:
+        return (abs(value) / max_abs) * (plot_width * 0.46)
+
+    lines = [
+        f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" viewBox="0 0 {width} {height}">',
+        '<rect x="0" y="0" width="100%" height="100%" fill="#f8fafc"/>',
+        f'<text x="{margin_left}" y="42" font-family="Helvetica, Arial, sans-serif" font-size="30" fill="#0f172a">{title}</text>',
+        f'<text x="{margin_left}" y="68" font-family="Helvetica, Arial, sans-serif" font-size="15" fill="#334155">{subtitle}</text>',
+        f'<line x1="{axis_x}" y1="{margin_top-8}" x2="{axis_x}" y2="{height-margin_bottom+8}" stroke="#94a3b8" stroke-width="2"/>',
+    ]
+
+    y = margin_top
+    for label, value in rows:
+        bar_len = scale(value)
+        color = "#059669" if value >= 0 else "#dc2626"
+        if value >= 0:
+            x = axis_x
+            text_anchor = "start"
+            text_x = x + bar_len + 8
+        else:
+            x = axis_x - bar_len
+            text_anchor = "end"
+            text_x = x - 8
+
+        safe_label = label.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+        lines.append(
+            f'<rect x="{x:.1f}" y="{y}" width="{bar_len:.1f}" height="{bar_h}" fill="{color}" rx="4" ry="4"/>'
+        )
+        lines.append(
+            f'<text x="{margin_left-10}" y="{y + bar_h*0.62:.1f}" text-anchor="end" font-family="Helvetica, Arial, sans-serif" font-size="14" fill="#0f172a">{safe_label}</text>'
+        )
+        lines.append(
+            f'<text x="{text_x:.1f}" y="{y + bar_h*0.62:.1f}" text-anchor="{text_anchor}" font-family="Helvetica, Arial, sans-serif" font-size="13" fill="#0f172a">{value:+.2f} {unit}</text>'
+        )
+        y += bar_h + gap
+
+    lines.append(
+        f'<text x="{margin_left}" y="{height-26}" font-family="Helvetica, Arial, sans-serif" font-size="12" fill="#64748b">Positive bars indicate improvement; negative bars indicate decline.</text>'
+    )
+    lines.append("</svg>")
+    return "\n".join(lines)
+
+
+async def generate_kpi_visualizations(
+    ticker: str = "MSFT",
+    period: str = "2025Q4",
+    metrics: str = "revenue,gross_margin_pct,operating_margin_pct,fcf,net_debt",
+    tool_context: ToolContext | None = None,
+) -> dict[str, Any]:
+    """Generate chart artifacts (SVG) for KPI and segment deltas."""
+    request_result = build_investigation_request(ticker=ticker, period=period, metrics=metrics, compare_to="qoq,peer")
+    if "error" in request_result:
+        return request_result
+    request = request_result["request"]
+
+    variance = execute_kpi_variance_query(
+        ticker=request["ticker"],
+        period=request["period"],
+        metrics=",".join(request["metrics"]),
+    )
+    root_causes = rank_root_causes(
+        ticker=request["ticker"],
+        period=request["period"],
+        focus_metric="revenue",
+    )
+    if "variance_rows" not in variance or "top_drivers" not in root_causes:
+        return {"message": "Unable to build visualization inputs from tool outputs."}
+
+    kpi_rows = [(row["metric"], float(row["qoq_delta_pct"])) for row in variance["variance_rows"]]
+    segment_rows = []
+    for row in root_causes["top_drivers"]:
+        segment_rows.append((row["key"], float(row["qoq_delta_pct"])))
+    for row in root_causes["bottom_drivers"]:
+        segment_rows.append((row["key"], float(row["qoq_delta_pct"])))
+
+    kpi_svg = _build_bar_chart_svg(
+        title=f"{request['ticker']} {request['period']} KPI QoQ Delta (%)",
+        subtitle="Derived from variance query output",
+        rows=kpi_rows,
+        unit="%",
+    )
+    segment_svg = _build_bar_chart_svg(
+        title=f"{request['ticker']} {request['period']} Segment QoQ Delta (%)",
+        subtitle="Top and bottom revenue contributors",
+        rows=segment_rows or [("No segment deltas", 0.0)],
+        unit="%",
+    )
+
+    charts_dir = Path(__file__).resolve().parents[1] / "outputs" / "reports" / "charts"
+    charts_dir.mkdir(parents=True, exist_ok=True)
+    kpi_local = charts_dir / "kpi_qoq_delta.svg"
+    segment_local = charts_dir / "segment_qoq_delta.svg"
+    kpi_local.write_text(kpi_svg, encoding="utf-8")
+    segment_local.write_text(segment_svg, encoding="utf-8")
+
+    artifacts: list[dict[str, Any]] = []
+    if tool_context is not None:
+        kpi_artifact_name = f"{request['ticker']}_{request['period']}_kpi_qoq_delta.svg"
+        segment_artifact_name = f"{request['ticker']}_{request['period']}_segment_qoq_delta.svg"
+        kpi_version = await tool_context.save_artifact(
+            filename=kpi_artifact_name,
+            artifact=types.Part.from_bytes(data=kpi_svg.encode("utf-8"), mime_type="image/svg+xml"),
+            custom_metadata={"chart_type": "kpi_qoq_delta"},
+        )
+        segment_version = await tool_context.save_artifact(
+            filename=segment_artifact_name,
+            artifact=types.Part.from_bytes(data=segment_svg.encode("utf-8"), mime_type="image/svg+xml"),
+            custom_metadata={"chart_type": "segment_qoq_delta"},
+        )
+        artifacts.extend(
+            [
+                {
+                    "filename": kpi_artifact_name,
+                    "version": kpi_version,
+                    "mime_type": "image/svg+xml",
+                    "local_path": str(kpi_local),
+                },
+                {
+                    "filename": segment_artifact_name,
+                    "version": segment_version,
+                    "mime_type": "image/svg+xml",
+                    "local_path": str(segment_local),
+                },
+            ]
+        )
+
+    return {
+        "query_id": f"viz_{request['ticker']}_{request['period']}",
+        "ticker": request["ticker"],
+        "period": request["period"],
+        "charts": [
+            {
+                "chart_id": "kpi_qoq_delta",
+                "title": "KPI QoQ Delta (%)",
+                "local_path": str(kpi_local),
+            },
+            {
+                "chart_id": "segment_qoq_delta",
+                "title": "Segment QoQ Delta (%)",
+                "local_path": str(segment_local),
+            },
+        ],
+        "artifacts": artifacts,
+        "source_query_ids": [variance.get("query_id"), root_causes.get("query_id")],
     }

@@ -1,0 +1,16 @@
+.git
+.gitignore
+.venv
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.DS_Store
+.env
+.env.*
+outputs
+models
+agents/.adk
+agents/outputs
+**/__pycache__
+**/*.ipynb

@@ -21,6 +21,7 @@ from .finance_tools import (
     execute_kpi_baseline_query,
     execute_kpi_peer_query,
     execute_kpi_variance_query,
+    generate_kpi_visualizations,
     map_causes_to_playbooks,
     rank_root_causes,
 )
@@ -35,6 +36,7 @@ STATE_PEER = "peer_result"
 STATE_ANOMALIES = "anomaly_result"
 STATE_ROOT_CAUSES = "root_cause_result"
 STATE_ACTIONS = "action_result"
+STATE_VISUALS = "visualization_result"
 STATE_CURRENT_DOC = "current_document"
 STATE_CRITICISM = "criticism"
 
@@ -111,6 +113,7 @@ def save_after_loop(callback_context: CallbackContext):
         "anomaly_result": _resolve_state_text(state, STATE_ANOMALIES),
         "root_cause_result": _resolve_state_text(state, STATE_ROOT_CAUSES),
         "action_result": _resolve_state_text(state, STATE_ACTIONS),
+        "visualization_result": _resolve_state_text(state, STATE_VISUALS),
         "critic_feedback": _resolve_state_text(state, STATE_CRITICISM),
     }
     base_dir = Path(__file__).resolve().parents[1] / "outputs" / "reports"
@@ -254,6 +257,19 @@ action_agent = LlmAgent(
 )
 
 
+visualization_agent = LlmAgent(
+    name="visualization_agent",
+    model=LiteLlm(model=OPENAI_MODEL),
+    include_contents="none",
+    instruction="""
+    Use request_contract to call generate_kpi_visualizations once.
+    Return only tool output JSON.
+    """,
+    tools=[generate_kpi_visualizations],
+    output_key=STATE_VISUALS,
+)
+
+
 writer_agent = LlmAgent(
     name="writer_agent",
     model=LiteLlm(model=OPENAI_MODEL),
@@ -270,6 +286,7 @@ writer_agent = LlmAgent(
     - anomaly_result: {{anomaly_result}}
     - root_cause_result: {{root_cause_result}}
     - action_result: {{action_result}}
+    - visualization_result: {{visualization_result}}
 
     Output a markdown report with this exact structure:
     1) ## SEC KPI Report - <ticker> <period>
@@ -280,12 +297,15 @@ writer_agent = LlmAgent(
     6) ### Recommended Actions
     7) ### Risks and Caveats
     8) ### Evidence
+    9) ### Visualizations
 
     Rules:
     - Include at least 3 quantified findings.
     - Include every action from action_result.actions exactly once in Recommended Actions.
     - Include at least 2 concrete actions.
     - Each finding must cite query_id evidence.
+    - In Visualizations, list each chart title and local_path from visualization_result.charts.
+    - If visualization_result.artifacts exists, list artifact filename and version.
     - Do not invent fields outside provided tool output.
     - Output only report markdown.
     """,
@@ -307,7 +327,8 @@ critic_agent = LlmAgent(
     3) At least 2 concrete recommendations.
     4) Recommended Actions includes every target present in action_result.actions.
     5) Evidence section references query IDs.
-    6) No unsupported claims.
+    6) Visualizations section includes entries for each chart in visualization_result.charts.
+    7) No unsupported claims.
 
     If ALL pass, respond exactly:
     {COMPLETION_PHRASE}
@@ -361,6 +382,7 @@ root_agent = SequentialAgent(
         anomaly_agent,
         root_cause_agent,
         action_agent,
+        visualization_agent,
         writer_agent,
         refinement_loop_agent,
     ],
