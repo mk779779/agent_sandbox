@@ -44,12 +44,27 @@ Always run ADK from `agents/` so only agent packages are discovered.
 
 ```bash
 cd /Users/masaCoding/codingmain/agent_sandbox/agents
-export ADK_SESSION_SERVICE_URI=postgresql+psycopg://adk:adk@127.0.0.1:5432/adk
-poetry run adk web --session_service_uri="$ADK_SESSION_SERVICE_URI" .
+poetry run adk web .
 ```
 
 UI:
 - `http://127.0.0.1:8000/dev-ui/`
+
+## OpenTelemetry (Tracing + Metrics)
+
+`sec_kpi_orchestrator` includes OTel instrumentation for:
+- tool-call spans and latency/error metrics
+- workflow save/exit callbacks and artifact-save counters
+
+Enable with env vars before running ADK:
+
+```bash
+export SEC_KPI_OTEL_ENABLED=true
+export OTEL_SERVICE_NAME=sec-kpi-orchestrator
+# Optional: send to an OTLP collector. If omitted, telemetry prints to console.
+export OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:4318
+export OTEL_EXPORTER_OTLP_INSECURE=true
+```
 
 ## Docker Deployment
 Build from repo root (`agent_sandbox`):

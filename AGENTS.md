@@ -1,11 +1,16 @@
 # Repo Agent Instructions
 
 ## Workspace
-- Use `/Users/masaCoding/codingmain/agent_sandbox/agent_workspace` as the primary workspace for notes, artifacts, and task outputs.
+- Use `/Users/masaCoding/codingmain/agent_sandbox/agents_workspace` as the primary workspace for notes, artifacts, and task outputs.
+- Store design documents under:
+  - `/Users/masaCoding/codingmain/agent_sandbox/agents_workspace/designs`
+- Store general documentation under:
+  - `/Users/masaCoding/codingmain/agent_sandbox/agents_workspace/docs`
+- Do not place new design/docs artifacts under `outputs/` unless the user explicitly asks.
 
 ## Reporting
 - If the user asks for a report, add a markdown report file under:
-  - `/Users/masaCoding/codingmain/agent_sandbox/agent_workspace/codex_sessions`
+  - `/Users/masaCoding/codingmain/agent_sandbox/agents_workspace/codex_sessions`
 - Report files should summarize technical changes, commands run, outcomes, and any follow-up actions.
 - Reports must be incremental (delta-only): include only new information since the most recent prior report in `codex_sessions`.
 - Do not repeat unchanged background/context from older reports.

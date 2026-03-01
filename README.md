@@ -37,25 +37,10 @@ export OPENAI_API_KEY=your-key
 export OPENROUTER_API_KEY=your-openrouter-key
 ```
 
-## PostgreSQL for ADK Sessions (Local)
+## SQLite for ADK Sessions (Local)
 
-Start local Postgres:
-
-```bash
-docker compose -f docker-compose.postgres.yml up -d
-```
-
-Use this ADK session DB URI:
-
-```bash
-export ADK_SESSION_SERVICE_URI=postgresql+psycopg://adk:adk@127.0.0.1:5432/adk
-```
-
-Stop Postgres:
-
-```bash
-docker compose -f docker-compose.postgres.yml down
-```
+ADK web uses local SQLite sessions by default (`agents/.adk/session.db`).
+No database setup is required.
 
 ## Run ADK Web (Local)
 
@@ -63,7 +48,7 @@ Important: run ADK from the `agents/` directory so only agent packages are disco
 
 ```bash
 cd agents
-poetry run adk web --session_service_uri="$ADK_SESSION_SERVICE_URI" .
+poetry run adk web .
 ```
 
 Open:

@@ -13,6 +13,8 @@ from typing import Any
 from google.adk.tools.tool_context import ToolContext
 from google.genai import types
 
+from .observability import traced_tool
+
 VALID_METRICS = {
     "revenue",
     "gross_margin_pct",
@@ -224,6 +226,7 @@ def _metric_direction(metric: str) -> str:
     return "higher_is_better"
 
 
+@traced_tool("build_investigation_request")
 def build_investigation_request(
     ticker: str = "MSFT",
     period: str = "2025Q4",
@@ -266,6 +269,7 @@ def build_investigation_request(
     }
 
 
+@traced_tool("build_finance_analysis_plan")
 def build_finance_analysis_plan(
     ticker: str = "MSFT",
     period: str = "2025Q4",
@@ -312,6 +316,7 @@ def build_finance_analysis_plan(
     }
 
 
+@traced_tool("execute_kpi_baseline_query")
 def execute_kpi_baseline_query(
     ticker: str = "MSFT",
     period: str = "2025Q4",
@@ -336,6 +341,7 @@ def execute_kpi_baseline_query(
     }
 
 
+@traced_tool("execute_kpi_variance_query")
 def execute_kpi_variance_query(
     ticker: str = "MSFT",
     period: str = "2025Q4",
@@ -382,6 +388,7 @@ def execute_kpi_variance_query(
     }
 
 
+@traced_tool("execute_kpi_peer_query")
 def execute_kpi_peer_query(
     ticker: str = "MSFT",
     period: str = "2025Q4",
@@ -431,6 +438,7 @@ def execute_kpi_peer_query(
     }
 
 
+@traced_tool("detect_kpi_anomalies")
 def detect_kpi_anomalies(
     ticker: str = "MSFT",
     period: str = "2025Q4",
@@ -449,6 +457,7 @@ def detect_kpi_anomalies(
     }
 
 
+@traced_tool("rank_root_causes")
 def rank_root_causes(
     ticker: str = "MSFT",
     period: str = "2025Q4",
@@ -505,6 +514,7 @@ def rank_root_causes(
     }
 
 
+@traced_tool("map_causes_to_playbooks")
 def map_causes_to_playbooks(
     ticker: str = "MSFT",
     period: str = "2025Q4",
@@ -610,6 +620,7 @@ def _build_bar_chart_svg(
     return "\n".join(lines)
 
 
+@traced_tool("generate_kpi_visualizations")
 async def generate_kpi_visualizations(
     ticker: str = "MSFT",
     period: str = "2025Q4",

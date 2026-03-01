@@ -192,8 +192,7 @@ OPENAI_API_KEY=your-openai-api-key
 ## Run
 
 ```bash
-export ADK_SESSION_SERVICE_URI=postgresql+psycopg://adk:adk@127.0.0.1:5432/adk
-poetry run adk web --reload --reload_agents --session_service_uri="$ADK_SESSION_SERVICE_URI" .
+poetry run adk web --reload --reload_agents .
 ```
 
 Then:

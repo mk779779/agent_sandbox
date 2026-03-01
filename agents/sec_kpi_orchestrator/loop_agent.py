@@ -25,8 +25,10 @@ from .finance_tools import (
     map_causes_to_playbooks,
     rank_root_causes,
 )
+from .observability import record_artifact_save, setup_otel, start_span
 
 OPENAI_MODEL = "openai/gpt-4o-mini"
+setup_otel()
 
 STATE_REQUEST = "request_contract"
 STATE_PLAN = "analysis_plan"
@@ -56,76 +58,82 @@ def _resolve_state_text(state, key: str) -> str:
 
 
 def _save_outputs(markdown: str, payload: str = "") -> dict:
-    base_dir = Path(__file__).resolve().parents[1] / "outputs" / "reports"
-    base_dir.mkdir(parents=True, exist_ok=True)
+    with start_span("workflow.save_outputs"):
+        base_dir = Path(__file__).resolve().parents[1] / "outputs" / "reports"
+        base_dir.mkdir(parents=True, exist_ok=True)
 
-    cleaned_markdown = markdown.strip()
-    if cleaned_markdown.startswith("```"):
-        lines = [line for line in cleaned_markdown.splitlines() if not line.strip().startswith("```")]
-        cleaned_markdown = "\n".join(lines).strip()
+        cleaned_markdown = markdown.strip()
+        if cleaned_markdown.startswith("```"):
+            lines = [line for line in cleaned_markdown.splitlines() if not line.strip().startswith("```")]
+            cleaned_markdown = "\n".join(lines).strip()
 
-    report_path = base_dir / "latest_sec_kpi_report.md"
-    report_path.write_text(cleaned_markdown, encoding="utf-8")
+        report_path = base_dir / "latest_sec_kpi_report.md"
+        report_path.write_text(cleaned_markdown, encoding="utf-8")
+        record_artifact_save("report_markdown", "ok")
 
-    result = {
-        "saved_report": str(report_path),
-        "report_chars": len(cleaned_markdown),
-    }
-    if payload.strip():
-        payload_path = base_dir / "latest_sec_kpi_payload.json"
-        cleaned_payload = payload.strip()
-        if cleaned_payload.startswith("```"):
-            lines = [line for line in cleaned_payload.splitlines() if not line.strip().startswith("```")]
-            cleaned_payload = "\n".join(lines).strip()
-        try:
-            payload_obj = json.loads(cleaned_payload)
-            payload_path.write_text(json.dumps(payload_obj, indent=2), encoding="utf-8")
-        except json.JSONDecodeError:
-            payload_path.write_text(cleaned_payload, encoding="utf-8")
-        result["saved_payload"] = str(payload_path)
+        result = {
+            "saved_report": str(report_path),
+            "report_chars": len(cleaned_markdown),
+        }
+        if payload.strip():
+            payload_path = base_dir / "latest_sec_kpi_payload.json"
+            cleaned_payload = payload.strip()
+            if cleaned_payload.startswith("```"):
+                lines = [line for line in cleaned_payload.splitlines() if not line.strip().startswith("```")]
+                cleaned_payload = "\n".join(lines).strip()
+            try:
+                payload_obj = json.loads(cleaned_payload)
+                payload_path.write_text(json.dumps(payload_obj, indent=2), encoding="utf-8")
+            except json.JSONDecodeError:
+                payload_path.write_text(cleaned_payload, encoding="utf-8")
+            record_artifact_save("report_payload", "ok")
+            result["saved_payload"] = str(payload_path)
 
-    print("_save_outputs:", result)
-    return result
+        print("_save_outputs:", result)
+        return result
 
 
 def exit_loop(tool_context: ToolContext):
     """Call only after critic confirms completion criteria."""
-    markdown = _resolve_state_text(tool_context.state or {}, STATE_CURRENT_DOC)
-    payload = _resolve_state_text(tool_context.state or {}, STATE_ACTIONS)
-    if markdown:
-        _save_outputs(markdown, payload)
-    tool_context.actions.escalate = True
-    return {}
+    with start_span("workflow.exit_loop"):
+        markdown = _resolve_state_text(tool_context.state or {}, STATE_CURRENT_DOC)
+        payload = _resolve_state_text(tool_context.state or {}, STATE_ACTIONS)
+        if markdown:
+            _save_outputs(markdown, payload)
+        tool_context.actions.escalate = True
+        return {}
 
 
 def save_after_loop(callback_context: CallbackContext):
     """Save report deterministically at the end of the loop."""
-    state = callback_context.state
-    state_dict = state.to_dict() if hasattr(state, "to_dict") else dict(state or {})
-    trace_payload = {
-        "captured_at_utc": datetime.now(timezone.utc).isoformat(),
-        "state_keys": sorted(state_dict.keys()),
-        "request_contract": _resolve_state_text(state, STATE_REQUEST),
-        "analysis_plan": _resolve_state_text(state, STATE_PLAN),
-        "baseline_result": _resolve_state_text(state, STATE_BASELINE),
-        "variance_result": _resolve_state_text(state, STATE_VARIANCE),
-        "peer_result": _resolve_state_text(state, STATE_PEER),
-        "anomaly_result": _resolve_state_text(state, STATE_ANOMALIES),
-        "root_cause_result": _resolve_state_text(state, STATE_ROOT_CAUSES),
-        "action_result": _resolve_state_text(state, STATE_ACTIONS),
-        "visualization_result": _resolve_state_text(state, STATE_VISUALS),
-        "critic_feedback": _resolve_state_text(state, STATE_CRITICISM),
-    }
-    base_dir = Path(__file__).resolve().parents[1] / "outputs" / "reports"
-    base_dir.mkdir(parents=True, exist_ok=True)
-    trace_path = base_dir / "latest_sec_kpi_trace.json"
-    trace_path.write_text(json.dumps(trace_payload, indent=2), encoding="utf-8")
+    with start_span("workflow.after_loop"):
+        state = callback_context.state
+        state_dict = state.to_dict() if hasattr(state, "to_dict") else dict(state or {})
+        trace_payload = {
+            "captured_at_utc": datetime.now(timezone.utc).isoformat(),
+            "state_keys": sorted(state_dict.keys()),
+            "request_contract": _resolve_state_text(state, STATE_REQUEST),
+            "analysis_plan": _resolve_state_text(state, STATE_PLAN),
+            "baseline_result": _resolve_state_text(state, STATE_BASELINE),
+            "variance_result": _resolve_state_text(state, STATE_VARIANCE),
+            "peer_result": _resolve_state_text(state, STATE_PEER),
+            "anomaly_result": _resolve_state_text(state, STATE_ANOMALIES),
+            "root_cause_result": _resolve_state_text(state, STATE_ROOT_CAUSES),
+            "action_result": _resolve_state_text(state, STATE_ACTIONS),
+            "visualization_result": _resolve_state_text(state, STATE_VISUALS),
+            "critic_feedback": _resolve_state_text(state, STATE_CRITICISM),
+        }
+        base_dir = Path(__file__).resolve().parents[1] / "outputs" / "reports"
+        base_dir.mkdir(parents=True, exist_ok=True)
+        trace_path = base_dir / "latest_sec_kpi_trace.json"
+        trace_path.write_text(json.dumps(trace_payload, indent=2), encoding="utf-8")
+        record_artifact_save("trace_json", "ok")
 
-    markdown = _resolve_state_text(state, STATE_CURRENT_DOC)
-    payload = _resolve_state_text(state, STATE_ACTIONS)
-    if markdown:
-        _save_outputs(markdown, payload)
-    return None
+        markdown = _resolve_state_text(state, STATE_CURRENT_DOC)
+        payload = _resolve_state_text(state, STATE_ACTIONS)
+        if markdown:
+            _save_outputs(markdown, payload)
+        return None
 
 
 request_agent = LlmAgent(
