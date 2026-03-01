@@ -1,0 +1,53 @@
+{
+  "ticker": "NVDA",
+  "deck_type": "investment_snapshot",
+  "audience": "internal_ic",
+  "slides": [
+    {
+      "title": "Company Overview",
+      "bullets": [
+        "NVIDIA provides accelerated computing platforms across data center, gaming, professional visualization, and automotive end markets. [NVDA-10K-2025-BUS-1]"
+      ],
+      "citations": [
+        "NVDA-10K-2025-BUS-1"
+      ]
+    },
+    {
+      "title": "Business Model",
+      "bullets": [
+        "The company monetizes a hardware-software ecosystem including GPUs, networking, and AI software frameworks. [NVDA-10K-2025-BIZMOD-1]"
+      ],
+      "citations": [
+        "NVDA-10K-2025-BIZMOD-1"
+      ]
+    },
+    {
+      "title": "Financial Snapshot",
+      "bullets": [
+        "Data center demand and AI infrastructure spending were primary drivers of year-over-year growth in revenue. [NVDA-10K-2025-FIN-1]",
+        "NVDA FY2025 revenue: $130,497M, Gross margin: 74.3%, Operating margin: 62.1%. [NVDA-10K-2025-FIN-1]"
+      ],
+      "citations": [
+        "NVDA-10K-2025-FIN-1"
+      ]
+    },
+    {
+      "title": "Key Risks",
+      "bullets": [
+        "Results may be affected by concentration in customers, supply chain dependencies, and geopolitical trade restrictions. [NVDA-10K-2025-RISK-1]"
+      ],
+      "citations": [
+        "NVDA-10K-2025-RISK-1"
+      ]
+    },
+    {
+      "title": "Recent Catalysts",
+      "bullets": [
+        "The filing includes quarterly financial results and management commentary on forward demand trends. [NVDA-8K-2025-CAT-1]"
+      ],
+      "citations": [
+        "NVDA-8K-2025-CAT-1"
+      ]
+    }
+  ]
+}

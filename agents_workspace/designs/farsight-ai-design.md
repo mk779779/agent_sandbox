@@ -138,6 +138,25 @@ Reason: free/public, high-signal financial data, no enterprise contract dependen
 4. Add artifact writer and source appendix generator.
 5. Add eval set of 10 public companies for regression checks.
 
+## Current Implementation Status (Repo)
+1. Completed in code (`agents/farsight_orchestrator`)
+- New ADK agent with phase-1 flow:
+  - request normalization
+  - section planning
+  - parallel section research
+  - metrics extraction
+  - deck JSON draft
+  - markdown draft + citation review loop
+  - artifact persistence
+- Added ingestion utility script: `agents/farsight_orchestrator/edgar_ingest.py`
+  - fetches SEC submissions metadata for selected tickers
+  - writes local snapshot JSON for phase-1 ingestion bootstrap
+- Artifacts are saved under `agents_workspace/artifacts/farsight/<ticker>/`.
+
+2. Phase-1 realism boundary
+- The first implementation uses a curated SEC EDGAR snapshot dataset for deterministic local runs.
+- Live SEC ingestion for current filings is available via `edgar_ingest.py`, while section-level parsing/chunking remains curated in this initial cut.
+
 ## Sources (Official)
 - Main site: https://www.farsight-ai.com/ (checked 2026-03-01)
 - Security details: https://www.farsight-ai.com/security (checked 2026-03-01)

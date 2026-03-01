@@ -12,6 +12,7 @@ Repository for ADK-based multi-agent experiments and prototypes.
 Current agent packages in `agents/`:
 - `report_gen`: OLAP-style iterative report generation example
 - `sec_kpi_orchestrator`: finance KPI investigation workflow with parallel evidence, root-cause analysis, actions, and visualizations
+- `farsight_orchestrator`: phase-1 Farsight-style deck drafting workflow using SEC EDGAR context and citation checks
 
 ## Prerequisites
 
