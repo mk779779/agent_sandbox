@@ -23,6 +23,7 @@ services:
       - "3200:3200" # Tempo API / query endpoint
 
   prometheus:
+    profiles: ["metrics"]
     image: prom/prometheus:v2.54.1
     container_name: sec-kpi-prometheus
     command: ["--config.file=/etc/prometheus/prometheus.yml", "--storage.tsdb.path=/prometheus"]
@@ -35,6 +36,7 @@ services:
       - otel-collector
 
   grafana:
+    profiles: ["ui"]
     image: grafana/grafana:11.2.2
     container_name: sec-kpi-grafana
     environment:
@@ -47,7 +49,6 @@ services:
     ports:
       - "3000:3000"
     depends_on:
-      - prometheus
       - tempo
 
 volumes:

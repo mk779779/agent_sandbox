@@ -80,7 +80,7 @@ SEC_KPI_OTEL_ENABLED=true OTEL_SERVICE_NAME=sec-kpi-orchestrator poetry run adk 
 1. Start local OTel + Grafana stack:
 ```bash
 cd /Users/masaCoding/codingmain/agent_sandbox/scripts/observability
-./run_otel_stack.sh
+./run_otel_stack.sh up ui
 ```
 2. Run ADK web with endpoint configured:
 ```bash
@@ -94,7 +94,7 @@ poetry run adk web .
 3. Open Grafana: `http://127.0.0.1:3000` (login `admin/admin`).
 4. In Grafana, use:
 - Explore -> data source `Tempo` -> query service `sec-kpi-orchestrator` for traces.
-- Explore -> data source `Prometheus` for metrics.
+- For Prometheus metrics, start full mode first: `./run_otel_stack.sh up full`.
 5. Inspect:
 - trace timeline by span name
 - histogram `sec_kpi_tool_latency_ms`
@@ -104,14 +104,14 @@ poetry run adk web .
 With the local stack, telemetry is persisted in Docker volumes:
 - `scripts/observability` stack:
   - `tempo_data` (traces)
-  - `prometheus_data` (metrics)
+  - `prometheus_data` (metrics, only in `full` mode)
   - `grafana_data` (Grafana state/dashboards)
 
 You can stop/start without losing data:
 ```bash
 cd /Users/masaCoding/codingmain/agent_sandbox/scripts/observability
-docker compose -f docker-compose.otel-grafana.yml down
-docker compose -f docker-compose.otel-grafana.yml up -d
+./run_otel_stack.sh down ui
+./run_otel_stack.sh up ui
 ```
 
 ## How to tell it is working

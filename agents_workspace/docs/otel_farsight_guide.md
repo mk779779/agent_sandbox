@@ -34,15 +34,19 @@ If you want console output only (no backend), omit `OTEL_EXPORTER_OTLP_ENDPOINT`
 1. Start stack:
 ```bash
 cd /Users/masaCoding/codingmain/agent_sandbox/scripts/observability
-./run_otel_stack.sh
+./run_otel_stack.sh up ui
 ```
 2. Open Grafana: `http://127.0.0.1:3000` (`admin/admin`)
 3. In Explore:
 - Data source `Tempo`: filter service `farsight-orchestrator` to inspect traces.
-- Data source `Prometheus`: query `farsight_tool_calls_total`, `farsight_tool_latency_ms`.
+
+To include Prometheus metrics locally, start full mode:
+```bash
+./run_otel_stack.sh up full
+```
 
 ## Persistence
 With the local stack, data is persisted in Docker volumes:
 - `tempo_data` (traces)
-- `prometheus_data` (metrics)
 - `grafana_data` (Grafana state)
+- `prometheus_data` (metrics, only in `full` mode)
