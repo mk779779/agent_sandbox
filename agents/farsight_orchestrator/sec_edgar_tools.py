@@ -307,12 +307,11 @@ def save_deck_artifacts(
     sources_markdown: str = "",
     ticker: str = "NVDA",
 ) -> dict[str, Any]:
-    """Persist phase 1 deck artifacts under agents_workspace."""
+    """Persist phase 1 deck artifacts under outputs."""
     cleaned_ticker = _clean_ticker(ticker)
     base_dir = (
         Path(__file__).resolve().parents[2]
-        / "agents_workspace"
-        / "artifacts"
+        / "outputs"
         / "farsight"
         / cleaned_ticker.lower()
     )

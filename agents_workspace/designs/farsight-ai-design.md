@@ -148,6 +148,7 @@ Reason: free/public, high-signal financial data, no enterprise contract dependen
   - markdown draft + citation review loop
   - artifact persistence
 - Optimization pass: removed separate LLM plan and source-appendix stages to reduce latency and failure surface; sources are now generated deterministically at save time.
+- Runtime artifacts are persisted under `outputs/farsight/<ticker>/` (not in `agents_workspace`).
 - Added ingestion utility script: `agents/farsight_orchestrator/edgar_ingest.py`
   - fetches SEC submissions metadata for selected tickers
   - writes local snapshot JSON for phase-1 ingestion bootstrap

@@ -1,12 +1,16 @@
 # Repo Agent Instructions
 
 ## Workspace
-- Use `/Users/masaCoding/codingmain/agent_sandbox/agents_workspace` as the primary workspace for notes, artifacts, and task outputs.
+- Use `/Users/masaCoding/codingmain/agent_sandbox/agents_workspace` as the primary workspace for notes, designs, and documentation.
 - Store design documents under:
   - `/Users/masaCoding/codingmain/agent_sandbox/agents_workspace/designs`
 - Store general documentation under:
   - `/Users/masaCoding/codingmain/agent_sandbox/agents_workspace/docs`
 - Do not place new design/docs artifacts under `outputs/` unless the user explicitly asks.
+- Save runtime/generated artifacts under:
+  - `/Users/masaCoding/codingmain/agent_sandbox/outputs/`
+- For Farsight agent outputs, use:
+  - `/Users/masaCoding/codingmain/agent_sandbox/outputs/farsight/<ticker>/`
 
 ## Reporting
 - If the user asks for a report, add a markdown report file under:

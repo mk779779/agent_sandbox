@@ -11,7 +11,7 @@ ADK multi-agent workflow for a Farsight-style deck draft using SEC EDGAR context
   - `latest_sources.md`
 
 Artifacts are saved under:
-- `agents_workspace/artifacts/farsight/<ticker>/`
+- `outputs/farsight/<ticker>/`
 
 ## Agent Flow
 1. `request_agent` (normalize ticker/deck type/audience)
