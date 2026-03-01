@@ -44,7 +44,8 @@ Always run ADK from `agents/` so only agent packages are discovered.
 
 ```bash
 cd /Users/masaCoding/codingmain/agent_sandbox/agents
-poetry run adk web .
+export ADK_SESSION_SERVICE_URI=postgresql+psycopg://adk:adk@127.0.0.1:5432/adk
+poetry run adk web --session_service_uri="$ADK_SESSION_SERVICE_URI" .
 ```
 
 UI:

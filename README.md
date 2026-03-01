@@ -37,17 +37,64 @@ export OPENAI_API_KEY=your-key
 export OPENROUTER_API_KEY=your-openrouter-key
 ```
 
+## PostgreSQL for ADK Sessions (Local)
+
+Start local Postgres:
+
+```bash
+docker compose -f docker-compose.postgres.yml up -d
+```
+
+Use this ADK session DB URI:
+
+```bash
+export ADK_SESSION_SERVICE_URI=postgresql+psycopg://adk:adk@127.0.0.1:5432/adk
+```
+
+Stop Postgres:
+
+```bash
+docker compose -f docker-compose.postgres.yml down
+```
+
 ## Run ADK Web (Local)
 
 Important: run ADK from the `agents/` directory so only agent packages are discovered.
 
 ```bash
 cd agents
-poetry run adk web .
+poetry run adk web --session_service_uri="$ADK_SESSION_SERVICE_URI" .
 ```
 
 Open:
 - `http://127.0.0.1:8000/dev-ui/`
+
+## Run Session/Event Chat API (`main.py`)
+
+This API supports:
+- new session creation when `session_id` is omitted
+- existing session continuation when `session_id` is provided
+- persistent event logging for user prompts, model responses, and tool calls
+
+Start server from repo root:
+
+```bash
+poetry run uvicorn main:app --host 127.0.0.1 --port 8010 --reload
+```
+
+Example request (new session):
+
+```bash
+curl -sS -X POST http://127.0.0.1:8010/chat \
+  -H "Content-Type: application/json" \
+  -d '{"prompt":"What time is it in UTC? Use tools if helpful.","user_id":"demo-user","request_id":"req-1"}'
+```
+
+Fetch events:
+
+```bash
+curl -sS "http://127.0.0.1:8010/sessions/<SESSION_ID>/events"
+```
 
 ## Docker Deployment
 
