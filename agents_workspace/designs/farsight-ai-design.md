@@ -142,12 +142,12 @@ Reason: free/public, high-signal financial data, no enterprise contract dependen
 1. Completed in code (`agents/farsight_orchestrator`)
 - New ADK agent with phase-1 flow:
   - request normalization
-  - section planning
   - parallel section research
   - metrics extraction
   - deck JSON draft
   - markdown draft + citation review loop
   - artifact persistence
+- Optimization pass: removed separate LLM plan and source-appendix stages to reduce latency and failure surface; sources are now generated deterministically at save time.
 - Added ingestion utility script: `agents/farsight_orchestrator/edgar_ingest.py`
   - fetches SEC submissions metadata for selected tickers
   - writes local snapshot JSON for phase-1 ingestion bootstrap

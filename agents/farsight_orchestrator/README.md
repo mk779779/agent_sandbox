@@ -15,13 +15,13 @@ Artifacts are saved under:
 
 ## Agent Flow
 1. `request_agent` (normalize ticker/deck type/audience)
-2. `plan_agent` (deterministic section plan)
-3. `research_parallel_agent` (overview/business model/financial/risk/catalyst context)
-4. `metrics_agent` (financial snapshot metrics)
-5. `sources_agent` (source appendix markdown)
-6. `deck_payload_agent` (structured deck JSON)
-7. `writer_agent` (markdown draft)
-8. `refinement_loop_agent` (`critic_agent` + `refiner_agent`)
+2. `research_parallel_agent` (overview/business model/financial/risk/catalyst context)
+3. `metrics_agent` (financial snapshot metrics)
+4. `deck_payload_agent` (structured deck JSON)
+5. `writer_agent` (markdown draft)
+6. `refinement_loop_agent` (`critic_agent` + `refiner_agent`)
+
+Source appendix is generated deterministically during artifact save (not as a separate LLM stage).
 
 ## Run
 From repository root:
@@ -38,4 +38,3 @@ In ADK web, choose `farsight_orchestrator` and prompt:
 ## Notes
 - This implementation is deterministic/local for development and does not call SEC APIs live yet.
 - Live ingestion can replace the curated dataset without changing the orchestration contract.
-

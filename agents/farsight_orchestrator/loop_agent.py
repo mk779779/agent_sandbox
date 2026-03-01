@@ -11,7 +11,6 @@ from google.adk.tools.tool_context import ToolContext
 
 from .sec_edgar_tools import (
     build_deck_request,
-    build_section_plan,
     build_sources_markdown,
     extract_financial_metrics,
     get_filing_context,
@@ -21,14 +20,12 @@ from .sec_edgar_tools import (
 OPENAI_MODEL = "openai/gpt-4o-mini"
 
 STATE_REQUEST = "deck_request"
-STATE_PLAN = "section_plan"
 STATE_OVERVIEW = "overview_context"
 STATE_BIZ = "business_model_context"
 STATE_FIN = "financial_context"
 STATE_RISKS = "risk_context"
 STATE_CATALYSTS = "catalyst_context"
 STATE_METRICS = "metrics_context"
-STATE_SOURCES = "sources_markdown"
 STATE_DECK_JSON = "deck_data_json"
 STATE_CURRENT_DOC = "current_document"
 STATE_CRITICISM = "criticism"
@@ -70,10 +67,12 @@ def _resolve_ticker(state) -> str:
 
 def _save_outputs(state) -> dict:
     ticker = _resolve_ticker(state)
+    sources_payload = build_sources_markdown(ticker=ticker)
+    sources_markdown = sources_payload.get("sources_markdown", "")
     return save_deck_artifacts(
         deck_markdown=_resolve_state_text(state, STATE_CURRENT_DOC),
         deck_data_json=_resolve_state_text(state, STATE_DECK_JSON),
-        sources_markdown=_resolve_state_text(state, STATE_SOURCES),
+        sources_markdown=sources_markdown,
         ticker=ticker,
     )
 
@@ -110,19 +109,6 @@ request_agent = LlmAgent(
     """,
     tools=[build_deck_request],
     output_key=STATE_REQUEST,
-)
-
-
-plan_agent = LlmAgent(
-    name="plan_agent",
-    model=LiteLlm(model=OPENAI_MODEL),
-    include_contents="none",
-    instruction="""
-    Use deck_request to call build_section_plan once.
-    Return only tool output JSON.
-    """,
-    tools=[build_section_plan],
-    output_key=STATE_PLAN,
 )
 
 
@@ -210,19 +196,6 @@ metrics_agent = LlmAgent(
 )
 
 
-sources_agent = LlmAgent(
-    name="sources_agent",
-    model=LiteLlm(model=OPENAI_MODEL),
-    include_contents="none",
-    instruction="""
-    Use deck_request to call build_sources_markdown once.
-    Return only sources markdown and citations as JSON.
-    """,
-    tools=[build_sources_markdown],
-    output_key=STATE_SOURCES,
-)
-
-
 deck_payload_agent = LlmAgent(
     name="deck_payload_agent",
     model=LiteLlm(model=OPENAI_MODEL),
@@ -232,7 +205,6 @@ deck_payload_agent = LlmAgent(
 
     Inputs:
     - deck_request: {{deck_request}}
-    - section_plan: {{section_plan}}
     - overview_context: {{overview_context}}
     - business_model_context: {{business_model_context}}
     - financial_context: {{financial_context}}
@@ -269,7 +241,6 @@ writer_agent = LlmAgent(
 
     Inputs:
     - deck_request: {{deck_request}}
-    - section_plan: {{section_plan}}
     - overview_context: {{overview_context}}
     - business_model_context: {{business_model_context}}
     - financial_context: {{financial_context}}
@@ -358,10 +329,8 @@ root_agent = SequentialAgent(
     name="farsight_orchestrator",
     sub_agents=[
         request_agent,
-        plan_agent,
         research_parallel_agent,
         metrics_agent,
-        sources_agent,
         deck_payload_agent,
         writer_agent,
         refinement_loop_agent,
