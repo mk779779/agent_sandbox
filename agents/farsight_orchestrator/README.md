@@ -36,5 +36,7 @@ In ADK web, choose `farsight_orchestrator` and prompt:
 - `Create a risk brief for MSFT.`
 
 ## Notes
-- This implementation is deterministic/local for development and does not call SEC APIs live yet.
-- Live ingestion can replace the curated dataset without changing the orchestration contract.
+- SEC tools are live-first:
+  - attempt live SEC APIs (`submissions`, `companyfacts`) for fresh filings/metrics
+  - automatically fall back to curated local snapshot data if SEC/network is unavailable
+- For production use, set a valid contact in `SEC_USER_AGENT`.

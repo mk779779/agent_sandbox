@@ -1,19 +1,33 @@
 """Phase 1 SEC EDGAR tools for farsight_orchestrator.
 
-This module intentionally uses a curated EDGAR snapshot so the workflow is
-deterministic for local development. The interface mirrors how live ingestion
-would be consumed in production.
+Tools attempt live SEC retrieval first, then fall back to curated data for
+local reliability.
 """
 
 from __future__ import annotations
 
 import json
+import os
+import urllib.error
+import urllib.request
 from pathlib import Path
 from typing import Any
 
 VALID_DECK_TYPES = {"investment_snapshot", "earnings_update", "risk_brief"}
 VALID_AUDIENCES = {"internal_ic", "client", "exec_team"}
 VALID_TOPICS = {"overview", "business_model", "financial_snapshot", "risks", "catalysts"}
+SEC_CONTACT_EMAIL = os.getenv("SEC_CONTACT_EMAIL", "masacodingdev@gmail.com")
+DEFAULT_SEC_USER_AGENT = os.getenv("SEC_USER_AGENT", f"farsight-orchestrator/phase1 ({SEC_CONTACT_EMAIL})")
+SEC_TICKERS_URL = "https://www.sec.gov/files/company_tickers.json"
+SEC_SUBMISSIONS_URL = "https://data.sec.gov/submissions/CIK{cik}.json"
+SEC_COMPANY_FACTS_URL = "https://data.sec.gov/api/xbrl/companyfacts/CIK{cik}.json"
+
+_TICKER_CIK_CACHE: dict[str, str] | None = None
+CURATED_TICKER_CIK = {
+    "NVDA": "0001045810",
+    "MSFT": "0000789019",
+    "AAPL": "0000320193",
+}
 
 FILING_CHUNKS: list[dict[str, Any]] = [
     {
@@ -135,8 +149,9 @@ METRIC_SNAPSHOTS: dict[str, dict[str, Any]] = {
 
 def _clean_ticker(ticker: str) -> str:
     cleaned = (ticker or "").strip().upper()
-    valid = sorted({chunk["ticker"] for chunk in FILING_CHUNKS})
-    return cleaned if cleaned in valid else "NVDA"
+    if cleaned.isalpha() and 1 <= len(cleaned) <= 6:
+        return cleaned
+    return "NVDA"
 
 
 def _clean_deck_type(deck_type: str) -> str:
@@ -192,6 +207,225 @@ def _extract_sources_markdown(payload: str) -> str:
     return cleaned
 
 
+def _http_get_json(url: str) -> dict[str, Any]:
+    headers = {
+        "User-Agent": DEFAULT_SEC_USER_AGENT,
+        "Accept": "application/json,text/plain,*/*",
+    }
+    if "@" in SEC_CONTACT_EMAIL:
+        headers["From"] = SEC_CONTACT_EMAIL
+    request = urllib.request.Request(url, headers=headers)
+    with urllib.request.urlopen(request, timeout=20) as response:
+        return json.loads(response.read().decode("utf-8"))
+
+
+def _ticker_cik_map() -> dict[str, str]:
+    global _TICKER_CIK_CACHE
+    if _TICKER_CIK_CACHE is not None:
+        return _TICKER_CIK_CACHE
+    mapping: dict[str, str] = dict(CURATED_TICKER_CIK)
+    try:
+        payload = _http_get_json(SEC_TICKERS_URL)
+        for row in payload.values():
+            ticker = str(row.get("ticker", "")).upper().strip()
+            cik_str = str(row.get("cik_str", "")).strip()
+            if ticker and cik_str:
+                mapping[ticker] = cik_str.zfill(10)
+    except (urllib.error.URLError, TimeoutError, ValueError, json.JSONDecodeError):
+        # Keep curated fallback map when SEC endpoint is not reachable.
+        pass
+    _TICKER_CIK_CACHE = mapping
+    return mapping
+
+
+def _resolve_cik(ticker: str) -> str | None:
+    return _ticker_cik_map().get(ticker)
+
+
+def _build_filing_url(cik: str, accession: str, primary_doc: str) -> str:
+    return (
+        f"https://www.sec.gov/Archives/edgar/data/{int(cik)}/"
+        f"{accession.replace('-', '')}/{primary_doc}"
+    )
+
+
+def _fetch_recent_filings(ticker: str) -> list[dict[str, Any]]:
+    cik = _resolve_cik(ticker)
+    if not cik:
+        return []
+    payload = _http_get_json(SEC_SUBMISSIONS_URL.format(cik=cik))
+    recent = payload.get("filings", {}).get("recent", {})
+    forms = recent.get("form", [])
+    filing_dates = recent.get("filingDate", [])
+    accession_numbers = recent.get("accessionNumber", [])
+    primary_docs = recent.get("primaryDocument", [])
+
+    filings: list[dict[str, Any]] = []
+    for idx, form in enumerate(forms):
+        if form not in {"10-K", "10-Q", "8-K"}:
+            continue
+        filing_date = filing_dates[idx] if idx < len(filing_dates) else ""
+        accession = accession_numbers[idx] if idx < len(accession_numbers) else ""
+        primary_doc = primary_docs[idx] if idx < len(primary_docs) else "index.html"
+        filing_url = _build_filing_url(cik, accession, primary_doc)
+        filings.append(
+            {
+                "ticker": ticker,
+                "filing_type": form,
+                "filing_date": filing_date,
+                "section": "Filing",
+                "source_url": filing_url,
+                "accession_number": accession,
+            }
+        )
+        if len(filings) >= 25:
+            break
+    return filings
+
+
+def _topic_filter(topic: str, filing_type: str) -> bool:
+    if topic in {"overview", "business_model", "risks"}:
+        return filing_type in {"10-K", "10-Q"}
+    if topic == "financial_snapshot":
+        return filing_type in {"10-K", "10-Q"}
+    if topic == "catalysts":
+        return filing_type == "8-K"
+    return True
+
+
+def _live_excerpt(topic: str, row: dict[str, Any]) -> str:
+    form = row["filing_type"]
+    date = row["filing_date"]
+    if topic == "overview":
+        return f"Recent {form} filed on {date}; use this filing as primary company disclosure context."
+    if topic == "business_model":
+        return f"{form} filed on {date}; review business section and MD&A for operating model updates."
+    if topic == "financial_snapshot":
+        return f"{form} filed on {date}; use reported statements and MD&A for latest financial profile."
+    if topic == "risks":
+        return f"{form} filed on {date}; use Risk Factors and disclosures for current risk assessment."
+    return f"{form} filed on {date}; use filing commentary for recent catalysts."
+
+
+def _live_context(ticker: str, topic: str, limit: int) -> dict[str, Any] | None:
+    try:
+        filings = _fetch_recent_filings(ticker)
+    except (urllib.error.URLError, TimeoutError, ValueError, json.JSONDecodeError):
+        return None
+    if not filings:
+        return None
+
+    rows = [row for row in filings if _topic_filter(topic, row["filing_type"])]
+    rows = rows[:limit]
+    if not rows:
+        return None
+
+    context_chunks = []
+    citations = []
+    for idx, row in enumerate(rows, start=1):
+        citation_id = (
+            f"{ticker}-{row['filing_type'].replace('-', '')}-"
+            f"{row['filing_date'].replace('-', '')}-{idx}"
+        )
+        section_name = "Item 2.02/8-K Disclosure" if row["filing_type"] == "8-K" else "Filing Disclosure"
+        context_chunks.append(
+            {
+                "citation_id": citation_id,
+                "excerpt": _live_excerpt(topic, row),
+                "section": section_name,
+                "filing_type": row["filing_type"],
+                "filing_date": row["filing_date"],
+            }
+        )
+        citations.append(
+            {
+                "citation_id": citation_id,
+                "filing_type": row["filing_type"],
+                "filing_date": row["filing_date"],
+                "section": section_name,
+                "source_url": row["source_url"],
+            }
+        )
+
+    return {
+        "ticker": ticker,
+        "topic": topic,
+        "context_chunks": context_chunks,
+        "citations": citations,
+        "data_mode": "live_sec",
+    }
+
+
+def _latest_usd_fact(payload: dict[str, Any], tags: list[str]) -> tuple[float, str, str] | None:
+    facts = payload.get("facts", {}).get("us-gaap", {})
+    best: tuple[float, str, str] | None = None
+    for tag in tags:
+        unit_rows = facts.get(tag, {}).get("units", {}).get("USD", [])
+        for row in unit_rows:
+            val = row.get("val")
+            form = row.get("form", "")
+            if val is None or form not in {"10-K", "10-Q"}:
+                continue
+            end = str(row.get("end", ""))
+            if best is None or end > best[1]:
+                best = (float(val), end, form)
+    return best
+
+
+def _live_metrics(ticker: str) -> dict[str, Any] | None:
+    cik = _resolve_cik(ticker)
+    if not cik:
+        return None
+    try:
+        payload = _http_get_json(SEC_COMPANY_FACTS_URL.format(cik=cik))
+    except (urllib.error.URLError, TimeoutError, ValueError, json.JSONDecodeError):
+        return None
+
+    revenue = _latest_usd_fact(
+        payload,
+        ["Revenues", "RevenueFromContractWithCustomerExcludingAssessedTax", "SalesRevenueNet"],
+    )
+    gross_profit = _latest_usd_fact(payload, ["GrossProfit"])
+    operating_income = _latest_usd_fact(payload, ["OperatingIncomeLoss"])
+
+    if not revenue:
+        return None
+
+    revenue_val, revenue_end, revenue_form = revenue
+    gross_margin_pct = round((gross_profit[0] / revenue_val) * 100.0, 1) if gross_profit else None
+    operating_margin_pct = round((operating_income[0] / revenue_val) * 100.0, 1) if operating_income else None
+
+    metrics = {
+        "fiscal_period_end": revenue_end,
+        "source_form": revenue_form,
+        "revenue_usd_mn": round(revenue_val / 1_000_000.0, 1),
+    }
+    if gross_margin_pct is not None:
+        metrics["gross_margin_pct"] = gross_margin_pct
+    if operating_margin_pct is not None:
+        metrics["operating_margin_pct"] = operating_margin_pct
+
+    return {
+        "ticker": ticker,
+        "metrics": metrics,
+        "highlights": [
+            f"{ticker} latest reported revenue: ${metrics['revenue_usd_mn']:,.1f}M ({revenue_form}, period end {revenue_end})",
+            f"Gross margin: {gross_margin_pct}%" if gross_margin_pct is not None else "Gross margin not available from latest SEC facts.",
+            f"Operating margin: {operating_margin_pct}%" if operating_margin_pct is not None else "Operating margin not available from latest SEC facts.",
+        ],
+        "citations": [
+            {
+                "citation_id": f"{ticker}-COMPANYFACTS-{revenue_end.replace('-', '')}",
+                "filing_type": revenue_form,
+                "filing_date": revenue_end,
+                "section": "SEC Company Facts",
+                "source_url": SEC_COMPANY_FACTS_URL.format(cik=cik),
+            }
+        ],
+        "data_mode": "live_sec",
+    }
+
+
 def build_deck_request(
     ticker: str = "NVDA",
     deck_type: str = "investment_snapshot",
@@ -244,6 +478,10 @@ def get_filing_context(
         cleaned_topic = "overview"
     limit = max(1, min(int(max_chunks or 3), 5))
 
+    live = _live_context(cleaned_ticker, cleaned_topic, limit)
+    if live:
+        return live
+
     rows = [
         row
         for row in FILING_CHUNKS
@@ -265,12 +503,17 @@ def get_filing_context(
         "topic": cleaned_topic,
         "context_chunks": context_chunks,
         "citations": _dedupe_citations(rows),
+        "data_mode": "curated_fallback",
     }
 
 
 def extract_financial_metrics(ticker: str = "NVDA") -> dict[str, Any]:
     """Return compact financial snapshot metrics for deck drafting."""
     cleaned_ticker = _clean_ticker(ticker)
+    live = _live_metrics(cleaned_ticker)
+    if live:
+        return live
+
     snapshot = METRIC_SNAPSHOTS.get(cleaned_ticker)
     if not snapshot:
         return {"error": f"No metric snapshot available for ticker {cleaned_ticker}."}
@@ -283,14 +526,19 @@ def extract_financial_metrics(ticker: str = "NVDA") -> dict[str, Any]:
             f"Gross margin: {snapshot['gross_margin_pct']}%",
             f"Operating margin: {snapshot['operating_margin_pct']}%",
         ],
+        "data_mode": "curated_fallback",
     }
 
 
 def build_sources_markdown(ticker: str = "NVDA") -> dict[str, Any]:
     """Build a markdown source appendix from all known filing citations."""
     cleaned_ticker = _clean_ticker(ticker)
-    rows = [row for row in FILING_CHUNKS if row["ticker"] == cleaned_ticker]
-    citations = _dedupe_citations(sorted(rows, key=lambda row: row["filing_date"], reverse=True))
+    live = _live_context(cleaned_ticker, "overview", 5)
+    if live:
+        citations = live["citations"]
+    else:
+        rows = [row for row in FILING_CHUNKS if row["ticker"] == cleaned_ticker]
+        citations = _dedupe_citations(sorted(rows, key=lambda row: row["filing_date"], reverse=True))
 
     lines = [f"## Sources - {cleaned_ticker}"]
     for item in citations:
@@ -298,7 +546,11 @@ def build_sources_markdown(ticker: str = "NVDA") -> dict[str, Any]:
             f"- [{item['citation_id']}] {item['filing_type']} {item['filing_date']} "
             f"({item['section']}): {item['source_url']}"
         )
-    return {"sources_markdown": "\n".join(lines), "citations": citations}
+    return {
+        "sources_markdown": "\n".join(lines),
+        "citations": citations,
+        "data_mode": "live_sec" if live else "curated_fallback",
+    }
 
 
 def save_deck_artifacts(

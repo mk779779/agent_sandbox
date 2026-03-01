@@ -155,8 +155,11 @@ Reason: free/public, high-signal financial data, no enterprise contract dependen
 - Artifacts are saved under `agents_workspace/artifacts/farsight/<ticker>/`.
 
 2. Phase-1 realism boundary
-- The first implementation uses a curated SEC EDGAR snapshot dataset for deterministic local runs.
-- Live SEC ingestion for current filings is available via `edgar_ingest.py`, while section-level parsing/chunking remains curated in this initial cut.
+- The implementation is now live-first for SEC retrieval:
+  - `submissions` API for current filing links/context
+  - `companyfacts` API for current financial metrics
+- If SEC/network is unavailable, tools automatically fall back to curated local data.
+- Section-level semantic excerpts are still template-style in live mode and should be upgraded with filing text parsing in a later phase.
 
 ## Sources (Official)
 - Main site: https://www.farsight-ai.com/ (checked 2026-03-01)
