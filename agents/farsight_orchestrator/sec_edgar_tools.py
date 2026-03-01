@@ -13,6 +13,8 @@ import urllib.request
 from pathlib import Path
 from typing import Any
 
+from .observability import traced_tool
+
 VALID_DECK_TYPES = {"investment_snapshot", "earnings_update", "risk_brief"}
 VALID_AUDIENCES = {"internal_ic", "client", "exec_team"}
 VALID_TOPICS = {"overview", "business_model", "financial_snapshot", "risks", "catalysts"}
@@ -426,6 +428,7 @@ def _live_metrics(ticker: str) -> dict[str, Any] | None:
     }
 
 
+@traced_tool("build_deck_request")
 def build_deck_request(
     ticker: str = "NVDA",
     deck_type: str = "investment_snapshot",
@@ -446,6 +449,7 @@ def build_deck_request(
     }
 
 
+@traced_tool("build_section_plan")
 def build_section_plan(deck_type: str = "investment_snapshot") -> dict[str, Any]:
     """Return a deterministic section plan for phase 1 deck drafts."""
     cleaned_deck_type = _clean_deck_type(deck_type)
@@ -466,6 +470,7 @@ def build_section_plan(deck_type: str = "investment_snapshot") -> dict[str, Any]
     return {"section_plan": {"deck_type": cleaned_deck_type, "sections": base_sections}}
 
 
+@traced_tool("get_filing_context")
 def get_filing_context(
     ticker: str = "NVDA",
     topic: str = "overview",
@@ -507,6 +512,7 @@ def get_filing_context(
     }
 
 
+@traced_tool("extract_financial_metrics")
 def extract_financial_metrics(ticker: str = "NVDA") -> dict[str, Any]:
     """Return compact financial snapshot metrics for deck drafting."""
     cleaned_ticker = _clean_ticker(ticker)
@@ -530,6 +536,7 @@ def extract_financial_metrics(ticker: str = "NVDA") -> dict[str, Any]:
     }
 
 
+@traced_tool("build_sources_markdown")
 def build_sources_markdown(ticker: str = "NVDA") -> dict[str, Any]:
     """Build a markdown source appendix from all known filing citations."""
     cleaned_ticker = _clean_ticker(ticker)
@@ -553,6 +560,7 @@ def build_sources_markdown(ticker: str = "NVDA") -> dict[str, Any]:
     }
 
 
+@traced_tool("save_deck_artifacts")
 def save_deck_artifacts(
     deck_markdown: str = "",
     deck_data_json: str = "",

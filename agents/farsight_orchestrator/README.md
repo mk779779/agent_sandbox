@@ -35,6 +35,23 @@ In ADK web, choose `farsight_orchestrator` and prompt:
 - `Build an investment snapshot deck for NVDA for internal IC.`
 - `Create a risk brief for MSFT.`
 
+## OpenTelemetry (Tracing + Metrics)
+
+Enable OTel for farsight with:
+
+```bash
+export FARSIGHT_OTEL_ENABLED=true
+export OTEL_SERVICE_NAME=farsight-orchestrator
+# Optional OTLP backend; if unset, telemetry prints to console.
+export OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:4318
+export OTEL_EXPORTER_OTLP_INSECURE=true
+```
+
+Emitted spans/metrics include:
+- `tool.*` spans for SEC tools and artifact saves
+- `workflow.save_outputs`, `workflow.exit_loop`, `workflow.after_loop`
+- `farsight_tool_calls_total`, `farsight_tool_errors_total`, `farsight_tool_latency_ms`, `farsight_artifact_saves_total`
+
 ## Notes
 - SEC tools are live-first:
   - attempt live SEC APIs (`submissions`, `companyfacts`) for fresh filings/metrics

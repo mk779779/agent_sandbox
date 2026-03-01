@@ -16,8 +16,10 @@ from .sec_edgar_tools import (
     get_filing_context,
     save_deck_artifacts,
 )
+from .observability import record_artifact_save, setup_otel, start_span
 
 OPENAI_MODEL = "openai/gpt-4o-mini"
+setup_otel()
 
 STATE_REQUEST = "deck_request"
 STATE_OVERVIEW = "overview_context"
@@ -66,28 +68,38 @@ def _resolve_ticker(state) -> str:
 
 
 def _save_outputs(state) -> dict:
-    ticker = _resolve_ticker(state)
-    sources_payload = build_sources_markdown(ticker=ticker)
-    sources_markdown = sources_payload.get("sources_markdown", "")
-    return save_deck_artifacts(
-        deck_markdown=_resolve_state_text(state, STATE_CURRENT_DOC),
-        deck_data_json=_resolve_state_text(state, STATE_DECK_JSON),
-        sources_markdown=sources_markdown,
-        ticker=ticker,
-    )
+    with start_span("workflow.save_outputs"):
+        ticker = _resolve_ticker(state)
+        sources_payload = build_sources_markdown(ticker=ticker)
+        sources_markdown = sources_payload.get("sources_markdown", "")
+        result = save_deck_artifacts(
+            deck_markdown=_resolve_state_text(state, STATE_CURRENT_DOC),
+            deck_data_json=_resolve_state_text(state, STATE_DECK_JSON),
+            sources_markdown=sources_markdown,
+            ticker=ticker,
+        )
+        if result.get("deck_markdown_path"):
+            record_artifact_save("deck_markdown", "ok")
+        if result.get("deck_data_json_path"):
+            record_artifact_save("deck_data_json", "ok")
+        if result.get("sources_markdown_path"):
+            record_artifact_save("sources_markdown", "ok")
+        return result
 
 
 def exit_loop(tool_context: ToolContext):
     """Exit refinement loop after completion phrase."""
-    _save_outputs(tool_context.state or {})
-    tool_context.actions.escalate = True
-    return {}
+    with start_span("workflow.exit_loop"):
+        _save_outputs(tool_context.state or {})
+        tool_context.actions.escalate = True
+        return {}
 
 
 def save_after_loop(callback_context: CallbackContext):
     """Persist latest deck outputs after loop completion."""
-    _save_outputs(callback_context.state)
-    return None
+    with start_span("workflow.after_loop"):
+        _save_outputs(callback_context.state)
+        return None
 
 
 request_agent = LlmAgent(

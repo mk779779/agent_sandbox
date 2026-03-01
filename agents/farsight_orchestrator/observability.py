@@ -1,9 +1,9 @@
 """
-OpenTelemetry helpers for sec_kpi_orchestrator.
+OpenTelemetry helpers for farsight_orchestrator.
 
-This module is intentionally defensive:
-- If OTel packages are missing, instrumentation becomes no-op.
-- If OTel is disabled, instrumentation becomes no-op.
+Defensive behavior:
+- If OTel packages are missing, instrumentation is a no-op.
+- If OTel is disabled, instrumentation is a no-op.
 """
 
 from __future__ import annotations
@@ -15,7 +15,7 @@ from functools import wraps
 from time import perf_counter
 from typing import Any, Callable
 
-_OTEL_ENABLED = os.getenv("SEC_KPI_OTEL_ENABLED", "false").strip().lower() in {"1", "true", "yes", "on"}
+_OTEL_ENABLED = os.getenv("FARSIGHT_OTEL_ENABLED", "false").strip().lower() in {"1", "true", "yes", "on"}
 _SETUP_DONE = False
 _SETUP_SUCCESS = False
 
@@ -30,8 +30,8 @@ def setup_otel() -> bool:
     Initialize tracer/meter providers once.
 
     Env knobs:
-    - SEC_KPI_OTEL_ENABLED=true|false
-    - OTEL_SERVICE_NAME (default: sec-kpi-orchestrator)
+    - FARSIGHT_OTEL_ENABLED=true|false
+    - OTEL_SERVICE_NAME (default: farsight-orchestrator)
     - OTEL_EXPORTER_OTLP_ENDPOINT (if unset, use console exporters)
     """
     global _SETUP_DONE, _SETUP_SUCCESS
@@ -56,7 +56,7 @@ def setup_otel() -> bool:
     except Exception:
         return False
 
-    service_name = os.getenv("OTEL_SERVICE_NAME", "sec-kpi-orchestrator")
+    service_name = os.getenv("OTEL_SERVICE_NAME", "farsight-orchestrator")
     resource = Resource.create(
         {
             "service.name": service_name,
@@ -82,26 +82,26 @@ def setup_otel() -> bool:
     meter_provider = MeterProvider(resource=resource, metric_readers=[metric_reader])
     metrics.set_meter_provider(meter_provider)
 
-    meter = metrics.get_meter("sec_kpi_orchestrator.observability")
+    meter = metrics.get_meter("farsight_orchestrator.observability")
     _M_TOOL_CALLS = meter.create_counter(
-        "sec_kpi_tool_calls_total",
+        "farsight_tool_calls_total",
         unit="1",
-        description="Total sec_kpi tool calls",
+        description="Total farsight tool calls",
     )
     _M_TOOL_ERRORS = meter.create_counter(
-        "sec_kpi_tool_errors_total",
+        "farsight_tool_errors_total",
         unit="1",
-        description="Total sec_kpi tool call errors",
+        description="Total farsight tool call errors",
     )
     _M_TOOL_LATENCY_MS = meter.create_histogram(
-        "sec_kpi_tool_latency_ms",
+        "farsight_tool_latency_ms",
         unit="ms",
-        description="Latency of sec_kpi tool calls in milliseconds",
+        description="Latency of farsight tool calls in milliseconds",
     )
     _M_ARTIFACT_SAVES = meter.create_counter(
-        "sec_kpi_artifact_saves_total",
+        "farsight_artifact_saves_total",
         unit="1",
-        description="Total artifact/report saves by sec_kpi workflow",
+        description="Total artifact/report saves by farsight workflow",
     )
 
     _SETUP_SUCCESS = True
@@ -111,7 +111,7 @@ def setup_otel() -> bool:
 def _tracer():
     from opentelemetry import trace
 
-    return trace.get_tracer("sec_kpi_orchestrator")
+    return trace.get_tracer("farsight_orchestrator")
 
 
 @contextmanager
@@ -160,7 +160,7 @@ def traced_tool(tool_name: str):
                 attrs = {
                     "tool.name": tool_name,
                     "ticker": kwargs.get("ticker"),
-                    "period": kwargs.get("period"),
+                    "topic": kwargs.get("topic"),
                 }
                 with start_span(f"tool.{tool_name}", attrs):
                     try:
@@ -183,7 +183,7 @@ def traced_tool(tool_name: str):
             attrs = {
                 "tool.name": tool_name,
                 "ticker": kwargs.get("ticker"),
-                "period": kwargs.get("period"),
+                "topic": kwargs.get("topic"),
             }
             with start_span(f"tool.{tool_name}", attrs):
                 try:
